@@ -1,0 +1,1326 @@
+//canyon 2019 07 12
+
+
+
+#include "Device.h"
+#include "Param.h"
+#include "TemplateReader.h"
+#include "CLog.h"
+#include "CoreBusiness.h"
+
+#include "../SdkAdaptor/HwSdkAdaptor.h"
+#include "../DataSync/DataSync.h"
+#include "../DataStatistic/MeterStore.h"
+
+
+//#include "../Redis/RedisMeterMng.h"
+
+using namespace Poco;
+using namespace ISFIT;
+using STORAGE::CMeterStore;
+
+namespace BUSINESS{
+
+//meter id: 123(devtype) 456(meter type) 789(same meter idx)
+//meter type: the forth byte(4): 1:AI 2:DI 3:AO 4:DO others:reserve
+//devtype: 100 101 102 ...
+//same meter idx: 001 002 003 ...
+
+
+CMeterPtr& CMeterPtr::operator=(const CMeterPtr& meterPtr)
+{
+	if (meterPtr.Exist())
+		m_pMeter = meterPtr.Meter();
+	else
+		m_pMeter = nullptr;
+
+	if (m_lock.get()==nullptr)
+		m_lock = meterPtr.GetLock();
+
+	return *this;
+}
+
+
+
+
+CDevice::CDevice(CData devName, CData devId, tDevTemplate* ptDevTemplate, CData gatewayId)
+	:CPublisher("dev_"+devName+"_" + devId)
+{
+	m_AINum = 0;
+	m_DINum = 0;
+	m_AONum = 0;
+	m_DONum = 0;
+
+
+	m_gatewayId = "local";
+	m_srcDevHeartbeatCnt = 0;
+	m_devId = devId;
+	m_devName = devName;
+	m_devTemplateChineseName = ptDevTemplate->templateChineseName;
+	m_devType = SMART_DEV;
+	if (ptDevTemplate->devType == "VIEW") m_devType = VIEW_DEV;
+	m_enableCtrlAODO = false;
+	m_devTemplate = ptDevTemplate;
+	m_platformName = ptDevTemplate->platformName;
+	m_gatewayId = gatewayId;
+	m_srcDevIntId = 0;
+	m_havedAddDevMngMap = false;
+
+	if (m_gatewayId == "local")
+	{
+		int subId = devId.substr(devId.size()-3).convertInt();
+		m_srcDevIntId = CTemplateReader::ConstructIntegerId(ptDevTemplate->devBaseIntegerId, subId);
+		m_srcDevStrId = devId;
+		LogInfo("=========devId and m_srcDevStrId:"<<m_srcDevStrId<<" m_srcDevIntId:"<<m_srcDevIntId);
+	}
+
+	int ret = CParam::Instance().GetMeterParam(m_devId, m_meterParamMap);
+
+	m_shareFile = new ShareFile(devId,true);
+
+	tDevParam devParam;
+	if (CParam::Instance().GetDevParam(m_devId, devParam) < 0)
+	{
+		LogInfo("create devsParam, devId:"<<m_devId<<" devName:"<<m_devName);
+		SetDevParam(devParam);
+	}
+	else
+	{
+		devParam.SetAliasDevId(m_aliasDevId);
+		devParam.SetAliasDevName(m_aliasDevName);
+		devParam.setFatherDevId(m_fatherDevId);
+
+		tDev dev(m_devId, m_devName, m_aliasDevId, m_aliasDevName);
+		m_shareFile->updateDevInfo(dev);
+	}
+
+	CMeterStore::Instance().GetMeterLastStoreTime(m_devId, m_lastTimeMap);
+}
+
+CDevice::~CDevice()
+{
+	{
+		ISFIT::CSmartWriteLock lock(m_meterRwMutex);
+		m_meterMap.clear();
+	}
+
+	PublishMsg((void*)m_devId.c_str(), "delDev");
+
+	LogInfo("destrutor CDevice dev:"<<m_devId);
+
+	delChildIdOfFatherNolock();
+}
+
+void CDevice::delChildIdOfFatherNolock()
+{
+	CDevice* pdev = CDeviceMng::Instance().GetDevPtr(m_fatherDevId);
+	if (pdev)
+	{
+		pdev->m_childIdSet.erase(m_devId);
+	}
+}
+
+int CDevice::CreateMeter(int meterIntegerId)
+{
+	tMeterTemplate *ptMeterTemplate = CTemplateReader::Instance().GetMeterTemplate(m_srcDevIntId,meterIntegerId);
+	if (ptMeterTemplate)
+	{
+		int meterSubId = CTemplateReader::GetSubIntegerId(meterIntegerId);
+		CData meterId = ptMeterTemplate->meterId;
+		char subId[10] = {0};
+		sprintf(subId,"%03d", meterSubId);
+		meterId = meterId.substr(0, meterId.size()-3) + CData(subId);
+		LogNotice("CreateMeter by integerId :"<<meterIntegerId<<" meterId:"<<meterId);
+		return CreateMeter(meterId);
+	}
+	else if (meterIntegerId != 0)
+	{
+		int meterBaseId = CTemplateReader::GetBaseIntegerId(meterIntegerId);
+		int meterSubId = CTemplateReader::GetSubIntegerId(meterIntegerId);
+		if (meterBaseId==0)
+		{
+			LogNotice("CreateMeter by integerId :"<<meterIntegerId<<" meterBaseId:"<<meterBaseId<<" meterSubId:"<<meterSubId);
+			return CreateMeter(CData(meterSubId-1));
+		}
+	}
+	return -1;
+}
+
+
+int CDevice::CreateMeter(CData meterId)
+{
+	if (meterId.empty()) return -1;
+
+	if (EnablePrint(meterId))
+	{
+		LogInfo("devId:"<<m_devId<<" create meterId:"<<meterId);
+	}
+
+
+	{
+		CSmartReadLock lock(m_meterRwMutex);
+		auto it = m_meterMap.find(meterId);
+		if (it != m_meterMap.end())
+		{
+			if (EnablePrint(meterId))
+			{
+				LogInfo("devId:"<<m_devId<<" meterId:"<<meterId<<" is exist, can not create");
+			}
+			return -2;
+		}
+	}
+
+	tMeterTemplate *ptMeterTemplate = CTemplateReader::Instance().GetMeterTemplate(m_devTemplate, meterId);
+	tMeterParam *ptMeterParam = nullptr;
+	{
+		auto it = m_meterParamMap.find(meterId);
+		if (it != m_meterParamMap.end())
+		{
+			ptMeterParam = it->second;
+		}
+		else
+		{
+        LogError("find meter error, id: " << meterId);
+        return -3;
+		}
+	}
+
+	SharedPtr<CMeter> pMeter = new CMeter(meterId, ptMeterTemplate, ptMeterParam, this);
+	if (AddMeter(pMeter) < 0)
+	{
+		return -3;
+	}
+
+	m_shareFile->setMeterId(meterId);
+	updateShareFile(pMeter.get());
+
+	std::list<CData> linkMeterList;
+	pMeter->LinkMeterList(linkMeterList);
+	for (auto it=linkMeterList.begin(); it!=linkMeterList.end(); it++)
+	{
+		CData& linkMeterId = *it;
+		CreateMeter(linkMeterId);
+	}
+
+	PublishMsg(pMeter.get(), "createMeter");
+
+	return 0;
+}
+
+
+int CDevice::AddMeter(SharedPtr<CMeter>& pMeter)
+{
+	CSmartWriteLock lock(m_meterRwMutex);
+	if(!pMeter)
+	{
+		LogError("pMeter is nullptr");
+		return -1;
+	}
+
+	CData meterName =  pMeter->GetName();
+	CData meterId =  pMeter->GetId();
+
+	if (EnablePrint(meterId))
+	{
+		LogInfo("devId:"<<m_devId<<" AddMeter meterId:"<<meterId);
+	}
+
+	auto it = m_meterMap.find(meterId);
+	if (it != m_meterMap.end())
+	{
+		if (EnablePrint(meterId))
+		{
+			LogInfo("devId:"<<m_devId<<" meterId:"<<meterId<<" is exist, can not AddMeter");
+		}
+		return -2;
+	}
+
+	m_meterMap[meterId] = pMeter;
+
+	if (pMeter->m_meterIntegerId != 0)
+	{
+		m_meterIntegerIdMap[pMeter->m_meterIntegerId] = pMeter.get();
+	}
+
+	/*if (!m_meterMap.insert(MerterPair(meterId,pMeter)).second)
+	{
+		//can auto release the pMeter, so do not use pMeter in this scoped
+		LogError("Add Msj Meter error, devname:"<<m_devName<<" devId:"<<m_devId<<" meterName:"<<meterName <<" meterId:"<<meterId);
+		return -1;
+	}*/
+
+	if (meterId.size() > 3)
+	{
+		int length = meterId.size();
+		int divPos = length - 3;
+		CData meterIdx = meterId.substring(divPos);
+		m_meterNameMap[meterName+"#"+meterIdx] = pMeter.get();
+	}
+	else if ((meterId=="0") || (meterId=="1"))
+	{
+		m_meterNameMap[meterName+"#001"] = pMeter.get();
+	}
+
+	SyncMeterNum(pMeter,"add");
+	//m_meterVector.push_back(pMeter.get());
+	return 0;
+}
+
+
+void CDevice::updateShareFile(CMeter * pMeter)
+{
+	if (!pMeter) return;
+
+	CData v;
+	std::time_t time;
+	pMeter->GetValue(v, time);
+
+	tMeter meter(pMeter->GetId(), pMeter->DataType(), pMeter->MeterType());
+	meter.setVal(v);
+	meter.time = time;
+	meter.setAlarmDesc(pMeter->m_alarmDesc);
+	meter.alarmLevel = (char)pMeter->m_alarmLevel;
+	meter.setupVal = pMeter->m_setupVal.convertDouble();
+	meter.absoluteVal = pMeter->m_absoluteVal.convertDouble();
+	meter.relativeVal = pMeter->m_relativeVal.convertDouble();
+	meter.threshold = pMeter->m_threshold.convertDouble();
+	int ret = m_shareFile->updateMeterVal(pMeter->GetId(), meter);
+	if (ret<0)
+	{
+		LogError("=== updateShareFile() updateMeterVal fail, devId:"<<m_devId<<" meterId:"<<pMeter->GetId()<<" ===");
+	}
+}
+
+
+void CDevice::UnLock(SharedPtr<CSmartRwUnlock>& meterUnlock)
+{
+	meterUnlock = new CSmartRwUnlock(m_meterRwMutex);
+}
+
+
+CData CDevice::GetDevName(bool containSuffix)
+{
+	CData devName = m_devName;
+
+
+	if ((m_gatewayId != "local") && (false == ISFIT::IsPlatformServer()))
+	{
+		devName = m_gatewayId+"#"+devName;
+	}
+
+	if (containSuffix)
+	{
+		return devName;
+	}
+
+	int suffixPos = devName.find(".");
+	if (CDATA_NPOS != suffixPos)
+	{
+		devName = devName.substring(0, suffixPos);
+	}
+	return devName;
+}
+
+
+int CDevice::SetMeterDIVal(CMeter *pMeter, eAlarmType type)
+{
+	if (nullptr == pMeter) return -1;
+
+	if (Alarm_Begin == type)
+	{
+		pMeter->SetValue(CData(1));
+	}
+	else if (Alarm_End == type)
+	{
+		pMeter->SetValue(CData(0));
+	}
+	return 0;
+}
+
+
+
+
+
+
+
+
+
+
+void CDevice::CreateAlarm(CMeter *pMeter, ALARM::eAlarmFlag beginOrEnd, CData desc)
+{
+	PublishMsg(pMeter, "meterDataReport");
+	if (desc.empty())
+	{
+		desc = pMeter->GetName();
+	}
+
+	ALARM::CAlarmMng::Instance().CreateAlarm(m_devId,
+										pMeter->GetId(),
+										pMeter->m_alarmLevel,
+										beginOrEnd ,
+										desc,
+										pMeter->GetDevTemplateChineseName(),//m_devTemplateChineseName,
+										pMeter->GetOriginalVal(),
+										this);
+}
+
+int CDevice::SyncMeterNum(SharedPtr<CMeter>& pMeter, CData addOrDel)
+{
+	if (!pMeter) return -1;
+
+	if (addOrDel == "add")
+	{
+		if (pMeter->GetMeterType() == AI_METER) m_AINum++;
+		else if (pMeter->GetMeterType() == DI_METER) m_DINum++;
+		else if (pMeter->GetMeterType() == AO_METER) m_AONum++;
+		else if (pMeter->GetMeterType() == DO_METER) m_DONum++;
+	}
+	else if (addOrDel == "del")
+	{
+		if (pMeter->GetMeterType() == AI_METER) m_AINum--;
+		else if (pMeter->GetMeterType() == DI_METER) m_DINum--;
+		else if (pMeter->GetMeterType() == AO_METER) m_AONum--;
+		else if (pMeter->GetMeterType() == DO_METER) m_DONum--;
+	}
+	return 0;
+}
+
+int CDevice::MeterNum()
+{
+	CSmartReadLock lock(m_meterRwMutex);
+	return m_meterMap.size();
+}
+
+CData CDevice::DevTypeName()
+{
+	if (SMART_DEV == m_devType) return "smart";
+	if (VIEW_DEV == m_devType) return "sensor";
+	if (SELF_DEV == m_devType) return "self";
+	return "unknow";
+}
+
+CData CDevice::GetState()
+{
+	CMeterPtr meterPtr = GetMeter("0");
+
+	try
+	{
+		CData val = meterPtr.Meter()->GetValue();
+		if (val.convertDouble() >= 1)
+		{
+			return "offline";
+		}
+		return "normal";
+	}
+	catch(...)
+	{
+
+	}
+	return "";
+}
+
+
+
+CMeter* CDevice::GetMeterPtr(CData meterId, eIdType meterIdType, int signalNum)
+{
+	CMeter *pMeter = nullptr;
+
+	if (MSJ_ID == meterIdType)
+	{
+		auto it = m_meterMap.find(meterId);
+		if (it != m_meterMap.end())
+		{
+			pMeter = it->second;
+		}
+	}
+	else if (CMM_ID == meterIdType)
+	{
+		if (signalNum>0)
+		{
+			char num[10] = {0};
+			sprintf(num, "%03d", signalNum);
+			meterId = meterId + CData(num);
+		}
+		auto it = m_meterMap.find(meterId);
+		if (it != m_meterMap.end())
+		{
+			pMeter = it->second;
+		}
+	}
+	else if (METER_NAME == meterIdType)
+	{
+		if (CDATA_NPOS == meterId.find("#"))
+		{
+			meterId += "#001";
+		}
+
+		auto it = m_meterNameMap.find(meterId);
+		if (it != m_meterNameMap.end())
+		{
+			pMeter = it->second;
+		}
+	}
+	else
+	{
+		auto it = m_meterMap.find(meterId);
+		if (it != m_meterMap.end())
+		{
+			pMeter = it->second;
+		}
+	}
+
+	return pMeter;
+}
+
+
+
+
+CMeterPtr CDevice::GetMeter(CData meterId, eIdType meterIdType, int signalNum)
+{
+	Poco::SharedPtr<CSmartRwLock> lock = new CSmartRwLock(m_meterRwMutex);
+
+	CMeter *pMeter = GetMeterPtr(meterId, meterIdType, signalNum);
+
+	CMeterPtr meterPtr(lock, pMeter);
+	return meterPtr;
+}
+
+//meterIntegerId:!=0
+CMeterPtr CDevice::GetMeter(int meterIntegerId,eIdType meterIdType)
+{
+	Poco::SharedPtr<CSmartRwLock> lock = new CSmartRwLock(m_meterRwMutex);
+
+	auto it = m_meterIntegerIdMap.find(meterIntegerId);
+	if (it != m_meterIntegerIdMap.end())
+	{
+		CMeter *pMeter = it->second;
+		CMeterPtr meterPtr(lock, pMeter);
+		return meterPtr;
+	}
+
+	CMeterPtr null;
+	return null;
+}
+
+
+int CDevice::GetMeter(std::vector<CMeter*>& meterVec, Poco::SharedPtr<CSmartRwLock>& lock)
+{
+	lock = new CSmartRwLock(m_meterRwMutex);
+
+	for (auto it=m_meterMap.begin(); it!=m_meterMap.end(); it++)
+	{
+		CMeter* pMeter = it->second;
+		//if (pMeter->ValUsed())
+		{
+			meterVec.push_back(pMeter);
+		}
+	}
+	return 0;
+}
+
+int CDevice::GetMeterIdList(std::list<CData>& meterIdList, bool containZero)
+{
+	CSmartRwLock lock(m_meterRwMutex);
+	for (auto it=m_meterMap.begin(); it!=m_meterMap.end(); it++)
+	{
+		if (containZero)
+		{
+			meterIdList.push_back(it->first);
+		}
+		else if (it->first != "0")
+		{
+			meterIdList.push_back(it->first);
+		}
+	}
+	return meterIdList.size();
+}
+
+
+
+int CDevice::DelMeter(SharedPtr<CMeter>& pMeter)
+{
+	if (!pMeter) return -1;
+
+	SyncMeterNum(pMeter,"del");
+
+//	for (auto it=m_meterVector.begin(); it!=m_meterVector.end(); it++)
+//	{
+//		CMeter* ptr = *it;
+//		if (ptr == pMeter.get())
+//		{
+//			m_meterVector.erase(it);
+//			return 0;
+//		}
+//	}
+	return 0;
+}
+
+
+int CDevice::DelMeter(CData meterId,eIdType meterIdType, int signalNum)
+{
+	if (meterId.empty())
+	{
+		return -1;
+	}
+
+	int ret = -2;
+
+	SharedPtr<CMeter> pMeter;
+	{
+		CSmartWriteLock lock(m_meterRwMutex);
+
+		if (MSJ_ID == meterIdType)
+		{
+			auto it = m_meterMap.find(meterId);
+			if (it != m_meterMap.end())
+			{
+				pMeter = it->second;
+				pMeter->DelParam();
+				DelMeter(pMeter);
+				m_meterMap.erase(it);
+				ret = 0;
+			}
+		}
+		else if (CMM_ID == meterIdType)
+		{
+			if (signalNum>0)
+			{
+				char num[10] = {0};
+				sprintf(num, "%03d", signalNum);
+				meterId = meterId + CData(num);
+			}
+			auto it = m_meterMap.find(meterId);
+			if (it != m_meterMap.end())
+			{
+				pMeter = it->second;
+				pMeter->DelParam();
+				DelMeter(pMeter);
+				m_meterMap.erase(meterId);
+				ret = 0;
+			}
+		}
+	}
+
+	return ret;
+}
+
+
+
+int CDevice::DelMeterParam(CData meterId,eIdType meterIdType, int signalNum, bool delAllSameDev)
+{
+	if (meterId.empty())  //delete all meter param
+	{
+		if (delAllSameDev)
+		{
+			std::list<CData> nameList;
+			CData baseDevId = m_devId.substr(0, m_devId.size()-3);
+			baseDevId += "dev_" + baseDevId;
+			CParam::Instance().GetTableName(nameList, baseDevId);
+			for (auto it=nameList.begin(); it!=nameList.end(); it++)
+			{
+				CData tableName = *it;
+				CData devId = tableName.substr(4);
+				LogInfo("==>delete all same dev's meter param in MeterParam.db, table:"<<tableName<<" devId:"<<devId);
+				CParam::Instance().DelMeterParam(devId, "");
+			}
+			return 0;
+		}
+		return CParam::Instance().DelMeterParam(m_devId, "");
+	}
+
+	CMeterPtr pMeter=GetMeter(meterId);
+	try
+	{
+		return pMeter.Meter()->DelParam();
+	}
+	catch(...)
+	{
+		LogError("DelMeterParam() not found meterId:"<<meterId<<" in devId:"<<m_devId<<" devName:"<<m_devName);
+	}
+	return -1;
+}
+
+
+
+
+
+int CDevice::SetDevParam(tDevParam& devParam)
+{
+	CData fatherDevId;
+	if (devParam.setFatherDevId(fatherDevId))
+	{
+		if (fatherDevId == m_devId)
+		{
+			LogError("=== devId:"<<m_devId<<" is the same fatherId:"<<fatherDevId<<" ===");
+			return -100;
+		}
+		CDevicePtr devPtr = CDeviceMng::Instance().GetDev(fatherDevId);
+		if (devPtr.Exist())
+		{
+			if (devPtr.Device()->m_fatherDevId == m_devId)
+			{
+				LogError("=== devId:"<<m_devId<<"'s fatherId:"<<fatherDevId<<" conflict ===");
+				return -101;
+			}
+		}
+	}
+
+	devParam.devId = m_devId;
+	devParam.devName = m_devName;
+	devParam.platformName = m_platformName;
+
+
+	devParam.SetAliasDevId(m_aliasDevId);
+	devParam.SetAliasDevName(m_aliasDevName);
+	devParam.setFatherDevId(m_fatherDevId);
+
+	int ret = CParam::Instance().SetDevParam(m_devId, devParam);
+
+	tDev dev(m_devId, m_devName, m_aliasDevId, m_aliasDevName);
+	m_shareFile->updateDevInfo(dev);
+
+	CDeviceMng::Instance().collectChildrenDevId(true);
+
+	return ret;
+}
+
+int CDevice::GetDevParam(tDevParam& devParam)
+{
+	int ret = CParam::Instance().GetDevParam(m_devId, devParam);
+
+	devParam.portName = GetPortName();
+
+	devParam.portSilkName = GetPortSilkName();
+	devParam.gatewayId = m_gatewayId;
+	devParam.addr = m_addr;
+	devParam.devName = m_devName;
+
+	devParam.fatherDevId = m_fatherDevId;
+
+	LogInfo("devId:"<<m_devId<<" devName:"<<m_devName<<" portName:"<<devParam.portName);
+	return ret;
+}
+
+
+int CDevice::DelDevParam(CData indexType)
+{
+	int ret = 0;
+	if (indexType == "devId")
+	{
+		ret = CParam::Instance().DelDevParam(m_devId, indexType);
+	}
+	else if (indexType == "devName")
+	{
+		ret = CParam::Instance().DelDevParam(m_devName, indexType);
+	}
+	else if (indexType == "portName")
+	{
+		ret = CParam::Instance().DelDevParam(GetPortName(), indexType);
+	}
+
+	return ret;
+}
+
+
+
+
+void CDevice::SetOwner(CAbstractPhysicalDevice *pOwner)
+{
+	if (nullptr == pOwner)
+	{
+		return;
+	}
+
+	m_ownerList.push_back(pOwner);
+}
+
+int CDevice::GetOwner(std::list<CAbstractPhysicalDevice*>& ownerList)
+{
+	ownerList = m_ownerList;
+	return m_ownerList.size();
+}
+
+
+
+
+int CDevice::Transparent(Poco::SharedPtr<unsigned char>& pSendBuf, int sendLength, Poco::SharedPtr<unsigned char>& pRspBuf)
+{
+	BDbg("test~~~~~~~~~~~~~~~~~~~~~\n");
+
+	for (auto it=m_ownerList.begin(); it!=m_ownerList.end(); it++)
+	{
+		CAbstractPhysicalDevice* owner = *it;
+		if (owner)
+		{
+			BDbg("test~~~~~~~~~~~~~~~~~~~~~\n");
+			return owner->Transparent(pSendBuf,   sendLength,pRspBuf);
+		}
+	}
+	return 0;
+}
+
+void CDevice::SetDevName(CData name)
+{
+	m_srcDevHeartbeatCnt = 0;
+	m_devName=name;
+
+	{
+		tDevParam devParam;
+		CParam::Instance().GetDevParam(m_devId, devParam);
+		if (devParam.devName == name) return;
+	}
+
+	{
+		m_devName=name;
+		tDevParam devParam;
+		devParam.devName = name;
+		CParam::Instance().SetDevParam(m_devId, devParam);
+	}
+}
+
+
+void CDevice::SetPortName(CData portName,bool single)
+{
+	if (single)
+	{
+		if (portName == GetPortName())
+			return;
+		m_portNameList.clear();
+	}
+	m_portNameList.push_back(portName);
+
+	tDevParam devParam;
+	devParam.portName = GetPortName();
+
+	tDevParam getDevParam;
+	CParam::Instance().GetDevParam(m_devId, getDevParam);
+
+	if (getDevParam.portName != devParam.portName)
+		CParam::Instance().SetDevParam(m_devId, devParam);
+
+
+}
+
+CData CDevice::GetPortName()
+{
+	CData portName;
+	bool fisrtName = true;
+	for (auto it = m_portNameList.begin(); it!=m_portNameList.end(); it++)
+	{
+		CData name = *it;
+
+		if (false == fisrtName)
+		{
+			portName += "+";
+		}
+		portName += name;
+		fisrtName = false;
+	}
+	return portName;
+}
+
+CData CDevice::GetPortSilkName()
+{
+	CData portSilkName;
+	bool fisrtName = true;
+	for (auto it = m_portNameList.begin(); it!=m_portNameList.end(); it++)
+	{
+		CData name = *it;
+
+		CData aliasName = HwSdkAda::CHwSdkAdaptor::Instance().GetResourceAliasName(name);
+
+		if (false == fisrtName)
+		{
+			portSilkName += "+";
+		}
+		portSilkName += aliasName;
+		fisrtName = false;
+	}
+	return portSilkName;
+}
+
+
+void CDevice::DelPortName(CData portName)
+{
+	for (auto it=m_portNameList.begin(); it!=m_portNameList.end(); it++)
+	{
+		CData name = *it;
+		if (name == portName)
+		{
+			m_portNameList.erase(it);
+			break;
+		}
+	}
+
+	tDevParam devParam;
+	devParam.portName = GetPortName();
+	CParam::Instance().SetDevParam(m_devId, devParam);
+}
+
+void CDevice::GetOwners(std::list<CAbstractPhysicalDevice*>& ownerList)
+{
+	for (auto it=m_ownerList.begin(); it!=m_ownerList.end(); it++)
+	{
+		ownerList.push_back(*it);
+	}
+
+}
+
+
+
+bool CDevice::EnablePrint(CData meterId)
+{
+	return CCoreBusiness::Instance().IfPrintMeterInfo(m_devId, meterId);
+}
+
+
+
+void CDevice::UpdateLinkMeter(CMeter *pMeter, CData val)
+{
+	if (nullptr == pMeter){LogError("pMeter is null"); return;}
+
+	std::list<CData> linkMeterList;
+	pMeter->LinkMeterList(linkMeterList);
+	for (auto it=linkMeterList.begin(); it!=linkMeterList.end(); it++)
+	{
+		CData& meterId = *it;
+		CMeter* meterPtr = GetMeterPtr(meterId);
+
+		try
+		{
+			SetMeterVal(meterPtr, val);
+		}
+		catch(...)
+		{
+
+		}
+	}
+}
+
+int CDevice::SetMeterDefaultVal(CData meterId, const std::vector<CData> &valVec)
+{
+	CMeterPtr pMeter=GetMeter(meterId);
+	try
+	{
+		pMeter.Meter()->SetDefaultValue(valVec);
+		return 0;
+	}
+	catch(...)
+	{
+		LogInfo("not found meterId:"<<meterId<<" in devId:"<<m_devId<<" devName:"<<m_devName);
+    return -1;
+	}
+}
+
+int CDevice::SetMeterVal(CMeter *pMeter, CData val, bool ctrlAODO)
+{
+	int ret = 0;
+	bool hadNotified = false;
+	CData publishDataPriority = "normal";
+
+	if (nullptr == pMeter) {LogError("pMeter is null"); return -10;}
+
+	bool print = EnablePrint(pMeter->GetId());
+	if (print)
+	{
+		LogInfo("SetMeterVal() info==> devId:"<<m_devId<<" meterId:"<<pMeter->GetId()\
+			<<" meterName:"<<pMeter->GetName()<<" val:"<<val\
+			<<" meterType:"<<MeterType(pMeter->m_meterType)<<" alarm level:"<<pMeter->m_alarmLevel\
+			<<" alarmDlyTime:"<<pMeter->m_alarmDlyVal\
+			<<" alarmClearDlyTime:"<<pMeter->m_alarmClearDlyVal\
+			<<" threshold:"<<pMeter->m_threshold\
+			<<" minThreshold:"<<pMeter->m_minThreshold<<" maxThreshold:"<<pMeter->m_maxThreshold\
+			<<" minValidData:"<<pMeter->m_minValidData<<" maxValidData:"<<pMeter->m_maxValidData);
+	}
+
+	pMeter->optionToValue(val, val);
+
+	pMeter->CorrectVal(val);
+
+	if (false == pMeter->CheckValidData(val))
+	{
+		LogInfo("SetMeterVal() invalid data==> devId:"<<m_devId<<" meterId:"<<pMeter->GetId()<<" val:"<<val);
+		return 0;
+	}
+
+	pMeter->SetOriginalVal(val);
+
+
+	if (DI_METER == pMeter->m_meterType)
+	{
+		CData alarmDesc;
+		eAlarmType type = pMeter->CheckAlarm(val, alarmDesc);
+		if (Alarm_Init != type)
+		{
+			LogInfo("SetMeterVal() alarm state changed, devId:"<<m_devId<<" meterId:"<<pMeter->GetId()\
+				<<" meterName:"<<pMeter->GetName()<<" val:"<<val\
+				<<" meterType:"<<MeterType(pMeter->m_meterType)<<" alarm level:"<<pMeter->m_alarmLevel\
+				<<" alarmstate:"<<pMeter->AlarmState(type)<<" alarmDlyTime:"<<pMeter->m_alarmDlyVal\
+				<<" alarmClearDlyTime:"<<pMeter->m_alarmClearDlyVal);
+		}
+
+		if (NOALARM == pMeter->m_alarmLevel)
+		{
+			if (Alarm_Init != type)
+			{
+				pMeter->SetAlarm((type==Alarm_Begin)?true:false);
+				PublishMsg(pMeter, "meterDataReport");
+				hadNotified = true;
+				publishDataPriority = "atonce";
+			}
+
+		}
+		else if ((INIT_ALARM_LEVEL != pMeter->m_alarmLevel) && (INVALID_STATE != pMeter->m_alarmLevel))
+		{
+			//需要先刷新值，后面的告警和send_data才能发送最新的值
+			if (Alarm_Begin == type)
+			{
+				pMeter->SetAlarm(true);
+				CreateAlarm(pMeter, ALARM::BEGIN_AlARM, alarmDesc);
+				hadNotified = true;
+				publishDataPriority = "atonce";
+			}
+			else if (Alarm_End == type)
+			{
+				pMeter->SetAlarm(false);
+				CreateAlarm(pMeter,  ALARM::END_ALARM, alarmDesc);
+				hadNotified = true;
+				publishDataPriority = "atonce";
+			}
+			else
+			{
+
+			}
+		}
+	}
+	else
+	{
+		if (ctrlAODO && ((DO_METER == pMeter->m_meterType) || (AO_METER == pMeter->m_meterType)))
+		{
+			for (auto& it : m_ownerList)
+			{
+				CAbstractPhysicalDevice* owner = it;
+				if (owner)
+				{
+					int setRet = owner->SetAODO(this, pMeter->GetId(), val);
+					if (setRet<0)
+					{
+						ret = setRet;
+						LogError("owner->SetAODO() devId:"<<m_devId<<" meterId:"<<pMeter->GetId()<<" val:"\
+							<<val<<" setRet:"<<setRet);
+					}
+				}
+			}
+		}
+
+		if (ret>=0)
+		{
+			if (pMeter->SetValue(val))
+			{
+				PublishMsg(pMeter, "meterDataReport");
+				hadNotified = true;
+				publishDataPriority = "atonce";
+			}
+		}
+	}
+
+	if (false == hadNotified)
+	{
+		if (pMeter->TimeToReportVal())
+		{
+			PublishMsg(pMeter, "meterDataReport");
+			publishDataPriority = "atonce";
+		}
+	}
+
+	if (ret>=0)
+		UpdateLinkMeter(pMeter, val);
+
+	bool valUpdated = pMeter->IsValUpdated();
+	if (valUpdated)
+	{
+		PublishMsg(pMeter, "meterDataChanged");
+		CData v;
+		std::time_t time;
+		pMeter->GetValue(v, time);
+		int ret = m_shareFile->updateMeterVal(pMeter->GetId(), v, time);
+		if (ret<0)
+		{
+			LogError("=== shareFile updateMeterVal fail, devId:"<<m_devId<<" meterId:"<<pMeter->GetId()<<" ===");
+		}
+	}
+
+	PublishData(pMeter, publishDataPriority,valUpdated);
+
+	return ret;
+}
+
+
+int CDevice::SetMeterVal(CData meterId, CData val, eIdType meterIdType, bool ctrlAODO, void* userData)
+{
+	bool dynamicCreateMeter = false;
+	{
+		CMeterPtr pMeter = GetMeter(meterId, meterIdType);
+		if (pMeter.Exist())
+		{
+			try{
+				int ret = SetMeterVal(pMeter.Meter(), val, ctrlAODO);
+				if (userData)
+				{
+					tMeterAppendInfo* info = (tMeterAppendInfo*)userData;
+					pMeter->UpdateTime(info->time);
+				}
+				return ret;
+			}
+			catch (Poco::Exception e)
+			{
+				LogError("SetMeterVal what:"<<e.what()<<" text:"<<e.displayText());
+			}
+		}
+		else
+		{
+			dynamicCreateMeter = true;
+			LogInfo("dev:" <<m_devId<< " not found meterId("<<typeid(meterId).name()<<"):"<<meterId<<" in devId:"<<m_devId<<" devName:"<<m_devName);
+		}
+	}
+
+	if (dynamicCreateMeter)
+	{
+		LogInfo("dynamic create meter, meterId("<<typeid(meterId).name()<<"):"<<meterId<<" in devId:"<<m_devId<<" devName:"<<m_devName);
+		CreateMeter(meterId);
+		CMeterPtr pMeter = GetMeter(meterId, meterIdType);
+		try
+		{
+			int ret = SetMeterVal(pMeter.Meter(), val, ctrlAODO);
+			if (userData)
+			{
+				tMeterAppendInfo* info = (tMeterAppendInfo*)userData;
+				pMeter->UpdateTime(info->time);
+			}
+			return ret;
+		}
+		catch(...)
+		{
+			LogError("devId:"<<m_devId<< " dynamic create meter, meterId:"<<meterId<<" fail");
+		}
+	}
+	return -20;
+}
+
+
+
+
+
+int CDevice::GetMeterVal(CData meterId, int &val, eIdType meterIdType)
+{
+	CData sval;
+	sval = GetMeterVal(meterId, meterIdType);
+	if (sval.empty()) return -1;
+	val = sval.convertInt();
+	return 0;
+}
+int CDevice::GetMeterVal(CData meterId, unsigned long &val, eIdType meterIdType)
+{
+	CData sval;
+	sval = GetMeterVal(meterId, meterIdType);
+	if (sval.empty()) return -1;
+	val = sval.convertInt();
+	return 0;
+}
+int CDevice::GetMeterVal(CData meterId, double &val, eIdType meterIdType)
+{
+	CData sval;
+	sval = GetMeterVal(meterId, meterIdType);
+	if (sval.empty()) return -1;
+	val = sval.convertDouble();
+	return 0;
+}
+
+int CDevice::GetMeterVal(CData meterId, CData &val, eIdType meterIdType)
+{
+	val = GetMeterVal(meterId, meterIdType);
+	return 0;
+}
+
+
+int CDevice::GetMeterVal(CData meterId, CData &val, std::int64_t& time, eIdType meterIdType)
+{
+	CMeterPtr pMeter = GetMeter(meterId, meterIdType);
+	try
+	{
+		pMeter.Meter()->GetValue(val, time);
+	}
+	catch(...)
+	{
+		LogInfo("not found meterId:"<<meterId<<" in devId:"<<m_devId<<" devName:"<<m_devName);
+		return -1;
+	}
+	return 0;
+}
+
+
+CData CDevice::GetMeterVal(CData meterId, eIdType meterIdType)
+{
+	CData null;
+	CMeterPtr pMeter = GetMeter(meterId, meterIdType);
+	try
+	{
+		return pMeter.Meter()->GetValue();
+	}
+	catch(...)
+	{
+		LogInfo("not found meterId:"<<meterId<<" in devId:"<<m_devId<<" devName:"<<m_devName);
+	}
+	return   null;
+}
+
+CData CDevice::GetMeterVal(int meterId, eIdType meterIdType)
+{
+	CData null;
+	CMeterPtr pMeter = GetMeter(meterId, meterIdType);
+	try
+	{
+		return pMeter.Meter()->GetValue();
+	}
+	catch(...)
+	{
+		LogInfo("not found meterId:"<<meterId<<" in devId:"<<m_devId<<" devName:"<<m_devName);
+	}
+	return   null;
+}
+
+
+CData CDevice::GetMeterValNoLock(CData meterId)
+{
+	CData null;
+
+	CMeter *pMeter = GetMeterPtr(meterId);
+	if (pMeter)
+	{
+		return pMeter->GetValue();
+	}
+
+	LogInfo("GetMeterValNoLock() not found meterId:"<<meterId<<" in map");
+	return   null;
+}
+
+int CDevice::SetMeterParam(CData meterId, tMeterParam& meterParam)
+{
+	CMeterPtr pMeter=GetMeter(meterId);
+	try
+	{
+		int ret = pMeter.Meter()->SetParam(meterParam);
+		updateShareFile(pMeter.Meter());
+		PublishMsg(pMeter.Meter(), "meterParamChanged");
+		return ret;
+	}
+	catch(...)
+	{
+		LogInfo("not found meterId:"<<meterId<<" in devId:"<<m_devId<<" devName:"<<m_devName);
+	}
+	return -1;
+}
+
+int CDevice::GetMeterParam(CData meterId, tMeterParam& meterParam)
+{
+	CMeterPtr pMeter=GetMeter(meterId);
+
+	try
+	{
+		return pMeter.Meter()->GetParam(meterParam);
+	}
+	catch(...)
+	{
+		LogInfo("not found meterId:"<<meterId<<" in map"<<" in devId:"<<m_devId<<" devName:"<<m_devName);
+	}
+	return -1;
+}
+
+
+int CDevice::PushRedis(CData devId, CData meterId, CData val)
+{
+	#if !defined(CUSTOMIZATON_tower) && !defined(AT91_CPU)
+	//return REDIS::CRedisMeterMng::Instance().SetMeterVal( devId, meterId,  val);
+	#endif
+	return -1;
+}
+
+
+
+void CDevice::UpdateValAtonce()
+{
+	CSmartReadLock lock(m_meterRwMutex);
+	for (auto it=m_meterMap.begin(); it!=m_meterMap.end(); it++)
+	{
+		it->second->UpdateValAtonce();
+	}
+}
+
+void CDevice::PublishAODOData()
+{
+	if (m_gatewayId == "local")
+	{
+		CSmartReadLock lock(m_meterRwMutex);
+		for (auto it = m_meterMap.begin(); it!=m_meterMap.end(); it++)
+		{
+			CMeter *pMeter = it->second;
+			if ((pMeter->m_meterType==AO_METER) || (pMeter->m_meterType==DO_METER))
+			{
+				DATASYNC::CDataSync::Instance().PublishData("broadcast", m_devId, pMeter->GetId(), \
+						pMeter->GetValue(), pMeter->ValType(), "atonce");
+			}
+		}
+	}
+}
+
+void CDevice::PublishName()
+{
+	if (m_gatewayId == "local")
+	{
+		DATASYNC::CDataSync::Instance().PublishData("broadcast", GetDevId(), "", GetDevName(), "devName", "atonce");
+		DATASYNC::CDataSync::Instance().PublishData("broadcast", GetDevId(), "", GetPortName(), "portName", "atonce");
+	}
+}
+
+
+void CDevice::PublishData(CMeter *pMeter, CData priority, bool valUpdated)
+{
+	if (DATASYNC::CDataSync::Instance().EnableSync() == false) return;
+
+	if (priority == "atonce")
+	{
+		PublishData(m_devId, pMeter->GetId(), pMeter->GetValue(), pMeter->ValType(), "atonce");
+	}
+	else
+	{
+		if (valUpdated || pMeter->IsRandomExpired())
+		{
+			if (m_gatewayId == "local")
+				LogDebug("PublishData(normal)devId:"<<m_devId<<" meterId:"<<pMeter->GetId()<<" type:"<< \
+					pMeter->MeterType()<<" val:"<<pMeter->GetValue());
+			PublishData(m_devId, pMeter->GetId(), pMeter->GetValue(), pMeter->ValType(), "atonce");
+		}
+	}
+}
+
+
+void CDevice::PublishData(CData devId, CData meterId, CData val, CData valType, CData priority)
+{
+	if (m_gatewayId == "local")
+	{
+		DATASYNC::CDataSync::Instance().PublishData("broadcast", devId, meterId, val, valType, priority);
+	}
+	else if (m_enableCtrlAODO)
+	{
+		DATASYNC::CDataSync::Instance().PublishData(m_gatewayId, devId, meterId, val, valType, "atonce");
+	}
+	else
+	{
+		m_srcDevHeartbeatCnt = 0;
+	}
+}
+
+
+}
+
+
