@@ -14,8 +14,8 @@ namespace CMM_SJY
 			dev.Brand = Device.GetAttribute("Brand");
 			dev.DevDescribe = Device.GetAttribute("DevDescribe");
 			dev.DeviceName = Device.GetAttribute("DeviceName");
-			dev.DeviceSubType = Device.GetAttribute("DeviceSubType").convertInt();
-			dev.DeviceType = Device.GetAttribute("DeviceType").convertInt();
+			dev.DeviceSubType = Device.GetAttribute("DeviceSubType");
+			dev.DeviceType = Device.GetAttribute("DeviceType");
 			dev.Model = Device.GetAttribute("Model");
 			dev.RatedCapacity = Device.GetAttribute("RatedCapacity").convertDouble();
 			dev.RoomName = Device.GetAttribute("RoomName");
@@ -40,6 +40,10 @@ namespace CMM_SJY
 				tSignal.SignalNumber = signal.GetAttribute("SignalNumber").convertInt();
 				tSignal.Threshold = signal.GetAttribute("Threshold").convertDouble();
 				int nType = signal.GetAttribute("Type").convertInt();
+				if (nType == CMM_SJY::ALARM)  //接收到的告警归属到DI
+					nType = CMM_SJY::DI;
+				else if (nType == CMM_SJY::DI)//接收到的DI归属到AI
+					nType = CMM_SJY::AI;
 				tSignal.Type = nType;
 				tSignal.SetupVal = signal.GetAttribute("SetupVal").convertDouble();
 				dev.singals.push_back(tSignal);
@@ -51,43 +55,11 @@ namespace CMM_SJY
 		return 0;
 	}
 
-	/*template<T> int CProtocolDecode::DecodeGetData( ISFIT::CXmlElement& devices, std::map<CData,std::list<T>>& devMap )
-	{
-	int index = 0;
-	ISFIT::CXmlElement Device  = devices.GetSubElement(CMM_SJY::Device, index++);
-	while(Device != NULL)
-	{
-	CData deviceId = Device.GetAttribute("ID");
-	std::list<TSemaphore> idList;
-	if(deviceId.length() == 0)
-	{
-	devMap.clear();
-	break;
-	}			
-	int idIndex = 0;
-	ISFIT::CXmlElement ID = Device.GetSubElement("ID",idIndex++);
-	while(ID != NULL)
-	{
-	CData id = ID.GetElementText();
-	if(id.length() == 0){
-	idList.clear();
-	break;
-	}
-	T semaphore = {0};
-	semaphore.ID = id;
-	semaphore.SingalNo = ID.GetAttribute("SingalNo").convertInt();
-	idList.push_back(semaphore);
-	ID = Device.GetSubElement("ID",idIndex++);
-	}
-	devMap[deviceId] = idList;
-	Device  = devices.GetSubElement(CMM_SJY::Device, index++);
-	}
-	return 0;
-	}
-	*/
 	int CProtocolDecode::DecodeTimeCheck( ISFIT::CXmlElement& info, TTime& time )
 	{
 		ISFIT::CXmlElement Time = info.GetSubElement("Time");
+		if (Time.isEmpty())
+			return -1;
 		time.Years = Time.GetSubElement("Year").GetElementText().convertInt();
 		time.Month = Time.GetSubElement("Month").GetElementText().convertInt();
 		time.Day = Time.GetSubElement("Day").GetElementText().convertInt();
@@ -125,6 +97,8 @@ namespace CMM_SJY
 	int CProtocolDecode::DecodeSetThreshold( ISFIT::CXmlElement&info, std::map<CData, std::list<TThreshold> >& devMap )
 	{
 		ISFIT::CXmlElement devicelist = info.GetSubElement("Value").GetSubElement("DeviceList");
+		if (devicelist.isEmpty())
+			return -1;
 		int index = 0; 
 		ISFIT::CXmlElement device = devicelist.GetSubElement("Device", index++);
 		while(device != NULL)
@@ -142,7 +116,20 @@ namespace CMM_SJY
 				thresholdValue.SignalNumber = threshold.GetAttribute("SignalNumber").convertInt();
 				thresholdValue.Status = threshold.GetAttribute("Status").convertInt();
 				thresholdValue.Threshold = threshold.GetAttribute("Threshold").convertDouble();
-				thresholdValue.Type = threshold.GetAttribute("Type").convertInt();
+				//thresholdValue.Type = threshold.GetAttribute("Type").convertInt();
+				int nType = threshold.GetAttribute("Type").convertInt();
+				
+				if (nType == CMM_SJY::ALARM)
+				{
+					nType = CMM_SJY::DI;
+				}
+				/*if (nType != CMM_SJY::DI)
+				{
+					threshold = device.GetSubElement("TThreshold", subIndex++);
+					continue;
+				}*/
+					
+				thresholdValue.Type = nType;
 				thresholdValue.NMAlarmID = threshold.GetAttribute("NMAlarmID");
 				thresholdValue.AlarmLevel = threshold.GetAttribute("AlarmLevel").convertInt();
 				threshold = device.GetSubElement("TThreshold", subIndex++);
@@ -159,6 +146,8 @@ namespace CMM_SJY
 	int CProtocolDecode::DecodeSetStorageRule( ISFIT::CXmlElement&info, std::map<CData, std::list<TSignal> >& devMap )
 	{
 		ISFIT::CXmlElement devicelist = info.GetSubElement("Value").GetSubElement("DeviceList");
+		if (devicelist.isEmpty())
+			return -1;
 		int index = 0; 
 		ISFIT::CXmlElement device = devicelist.GetSubElement("Device", index++);
 		while(device != NULL)
@@ -176,7 +165,16 @@ namespace CMM_SJY
 				val.RelativeVal = StorageRule.GetAttribute("RelativeVal").convertDouble();
 				
 				val.savePeriod = StorageRule.GetAttribute("StorageInterval").convertInt();
-				val.Type = StorageRule.GetAttribute("Type").convertInt();
+				int nType = StorageRule.GetAttribute("Type").convertInt();
+				if (nType == CMM_SJY::ALARM)
+				{
+					nType = CMM_SJY::DI;
+				}
+				else if (nType == CMM_SJY::DI)
+				{
+					nType = CMM_SJY::AI;
+				}
+				val.Type = nType;
 				StorageRule = device.GetSubElement("TStorageRule", subIndex++);
 				valueList.push_back(val);
 			}

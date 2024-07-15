@@ -114,8 +114,8 @@ namespace CMM_SJY{
 			SET_XML_ATTRIBUTE(device, "RoomID", dev.RoomID.c_str());
 			SET_XML_ATTRIBUTE(device, "SiteName", dev.SiteName.c_str());
 			SET_XML_ATTRIBUTE(device, "RoomName", dev.RoomName.c_str());
-			SET_XML_ATTRIBUTE(device, "DeviceType", dev.DeviceType);
-			SET_XML_ATTRIBUTE(device, "DeviceSubType", dev.DeviceSubType);
+			SET_XML_ATTRIBUTE(device, "DeviceType", dev.DeviceType.c_str());
+			SET_XML_ATTRIBUTE(device, "DeviceSubType", dev.DeviceSubType.c_str());
 			SET_XML_ATTRIBUTE(device, "Model", dev.Model.c_str());
 			SET_XML_ATTRIBUTE(device, "Brand", dev.Brand.c_str());
 			SET_XML_ATTRIBUTE(device, "RatedCapacity", dev.RatedCapacity);
@@ -199,15 +199,12 @@ namespace CMM_SJY{
 			info.AddSubElement("FailureCause").SetElementText("NULL");
 			info.AddSubElement("FSUID").SetElementText(CMMConfig::instance()->GetFsuId().c_str());
 			ISFIT::CXmlElement TFSUStatus =  info.AddSubElement("TFSUStatus");
-			ISFIT_OS::T_SysInfo sysinfo;
-			ISFIT_OS::getsysInfo(sysinfo);
+			CData cpuUsage, memUsage;
+			APPAPI::GetMeterVal("215001", "138101001", "msj", cpuUsage);
+			APPAPI::GetMeterVal("215001", "138102001", "msj", memUsage);
 
-			//TFSUStatus.AddSubElement("CPUUsage").SetElementText((float)12.9);
-			//TFSUStatus.AddSubElement("MEMUsage").SetElementText((float)18.8);
-			//TFSUStatus.AddSubElement("HardDiskUsage").SetElementText((float)66.9);
-			
-			TFSUStatus.AddSubElement("CPUUsage").SetElementText(sysinfo.cpuUsage);
-			TFSUStatus.AddSubElement("MEMUsage").SetElementText(sysinfo.memUsage);
+			TFSUStatus.AddSubElement("CPUUsage").SetElementText((float)cpuUsage.convertDouble());
+			TFSUStatus.AddSubElement("MEMUsage").SetElementText((float)memUsage.convertDouble());
 			TFSUStatus.AddSubElement("HardDiskUsage").SetElementText((float)0.0);
 		}
 		catch (Poco::Exception& ex)
@@ -378,7 +375,7 @@ namespace CMM_SJY{
 		return doc.ToString();	
 	}
 
-	CData CMMProtocolEncode::BuildAalrmReportInfo(std::list<TAlarm>&alarmList)
+	CData CMMProtocolEncode::BuildAlarmReportInfo(std::list<TAlarm>&alarmList)
 	{
 		ISFIT::CXmlDoc doc;
 		doc.Parse(CMM_REQUEST_XML_HEAD);
@@ -610,6 +607,30 @@ namespace CMM_SJY{
 		return doc.ToString();	
 	}
 
+	CData CMMProtocolEncode::BuildSetLoginRsp(int result, CData reason, CData type)
+	{
+		ISFIT::CXmlDoc doc;
+		doc.Parse(CMM_RESPONSE_XML_HEAD);
+		try
+		{
+			ISFIT::CXmlElement root = doc.GetElement(CMM_SJY::Response);
+			ISFIT::CXmlElement pkType = root.GetSubElement(CMM_SJY::PK_Type);
+			pkType.GetSubElement(CMM_SJY::Name).SetElementText(type.c_str());
+
+			ISFIT::CXmlElement info = root.AddSubElement(CMM_SJY::Info);
+			info.AddSubElement("FSUID").SetElementText(CMMConfig::instance()->GetFsuId().c_str());
+			info.AddSubElement("Result").SetElementText(result);
+			info.AddSubElement("FailureCause").SetElementText(reason.c_str());
+			//info.AddSubElement("FSUID").SetElementText(CMMConfig::instance()->GetFsuId().c_str());
+		}
+		catch (Poco::Exception& ex)
+		{
+			LogError("build login msg failed :"<<ex.message().c_str());
+			return "";
+		}
+		return doc.ToString();	
+	}
+
 	CData CMMProtocolEncode::BuildGetLoginInfoRsp()
 	{
 		ISFIT::CXmlDoc doc;
@@ -636,10 +657,10 @@ namespace CMM_SJY{
 			CData ver = verMap["appVer"];
 			info.AddSubElement("FSUVER").SetElementText("4.5.0");
 			
-			info.AddSubElement("SiteID").SetElementText(CMMConfig::instance()->GetSiteID().c_str());
-			info.AddSubElement("RoomID").SetElementText(CMMConfig::instance()->GetRoomID().c_str());
-			info.AddSubElement("SiteName").SetElementText(CMMConfig::instance()->GetSiteName().c_str());
-			info.AddSubElement("RoomName").SetElementText(CMMConfig::instance()->GetRoomName().c_str());
+			info.AddSubElement("SiteID").SetElementText(CMMConfig::instance()->m_SiteID.c_str());
+			info.AddSubElement("RoomID").SetElementText(CMMConfig::instance()->m_RoomID.c_str());
+			info.AddSubElement("SiteName").SetElementText(CMMConfig::instance()->m_SiteName.c_str());
+			info.AddSubElement("RoomName").SetElementText(CMMConfig::instance()->m_RoomName.c_str());
 
 		}
 		catch (Poco::Exception& ex)

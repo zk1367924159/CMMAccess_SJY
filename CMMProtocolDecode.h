@@ -42,7 +42,40 @@ namespace CMM_SJY
 			}
 			return 0;
 		}
-
+		template<class T>
+		static int DecodeGetStorageRuleList(ISFIT::CXmlElement& devices, std::map<CData, std::list<T> >& devMap)
+		{
+			int index = 0;
+			ISFIT::CXmlElement Device = devices.GetSubElement(CMM_SJY::Device, index++);
+			while (Device != NULL)
+			{
+				CData deviceId = Device.GetAttribute("ID");
+				std::list<T> idList;
+				if (deviceId.length() == 0)
+				{
+					devMap.clear();
+					break;
+				}
+				int idIndex = 0;
+				ISFIT::CXmlElement TSignalMeasurementId = Device.GetSubElement("TSignalMeasurementId", idIndex++);
+				while (TSignalMeasurementId != NULL)
+				{
+					CData id = TSignalMeasurementId.GetAttribute("ID");
+					if (id.length() == 0) {
+						idList.clear();
+						break;
+					}
+					T semaphore;
+					semaphore.ID = id;
+					semaphore.SignalNumber = TSignalMeasurementId.GetAttribute("SignalNumber").convertInt();
+					idList.push_back(semaphore);
+					TSignalMeasurementId = Device.GetSubElement("TSignalMeasurementId", idIndex++);
+				}
+				devMap[deviceId] = idList;
+				Device = devices.GetSubElement(CMM_SJY::Device, index++);
+			}
+			return 0;
+		}
 		static int DecodeTimeCheck(ISFIT::CXmlElement& info, TTime& time);
 		static int DecodeSetPoint(ISFIT::CXmlElement& info, std::map<CData, std::list<TSemaphore> >& devMap);
 		static int DecodeSetThreshold(ISFIT::CXmlElement&info, std::map<CData, std::list<TThreshold> >& devMap);

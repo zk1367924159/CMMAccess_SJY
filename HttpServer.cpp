@@ -109,20 +109,9 @@ namespace CMM_SJY
 	{
 		
 		CData requestUri = request.getURI();
+		CData method = request.getMethod().c_str();
 		CData  auth_header, token, responseData;
 		Poco::URI uri(requestUri.c_str());
-		if (uri.getPath() != "/services/FSUService")
-		{
-			CData errorMsg = "404 page not found";
-			CMMAccess::instance()->UpdateAuthHeader(errorMsg, auth_header, token);
-			response.setStatusAndReason(HTTPResponse::HTTP_NOT_FOUND);
-			response.setContentType("text/plain; charset=UTF-8");
-			response.setContentLength(errorMsg.size());
-			response.set("Authorization", auth_header.c_str());
-			std::ostream& out = response.send();
-			out << errorMsg.c_str();
-			return;
-		}
 		bool bstate = CMMAccess::instance()->GetLoginState();
 		if (!bstate)
 		{
@@ -136,33 +125,31 @@ namespace CMM_SJY
 			out << errorMsg.c_str();
 			return;
 		}
-		if (request.getContentLength() == 0)
+		if (method == "GET")
 		{
-			CData errorMsg = "Bad Request";
-			CMMAccess::instance()->UpdateAuthHeader(errorMsg, auth_header, token);
-			response.setStatusAndReason(HTTPResponse::HTTP_BAD_REQUEST);
+			// 设置响应状态码和头部  
+			response.setStatusAndReason(HTTPResponse::HTTP_NOT_FOUND);
 			response.setContentType("text/plain; charset=UTF-8");
-			response.setContentLength(errorMsg.size());
-			response.set("Authorization", auth_header.c_str());
-			std::ostream& out = response.send();
-			out << errorMsg.c_str();
+			response.send();
 			return;
 		}
-		static char msgBuf[CMCC_MAX_RESPONSE_BUFFER_SIZE];
-		//解析请求体
-		std::string requestBody;
-		
-		try
+		else if (method == "POST")
 		{
-			// 直接读取整个响应体到字符串
-			std::istream& rs = request.stream();
-			requestBody.resize(static_cast<std::size_t>(request.getContentLength()));
-			rs.read(&requestBody[0], requestBody.size());
-			
-			// 如果实际读取的字节数小于请求头中的Content-Length，说明可能读取不完整
-			if (rs.gcount() != static_cast<std::streamsize>(requestBody.size()))
+			if (uri.getPath() != "/services/FSUService")
 			{
-				CData errorMsg = "Read xmlData Incomplete reading";
+				CData errorMsg = "404 page not found";
+				CMMAccess::instance()->UpdateAuthHeader(errorMsg, auth_header, token);
+				response.setStatusAndReason(HTTPResponse::HTTP_NOT_FOUND);
+				response.setContentType("text/plain; charset=UTF-8");
+				response.setContentLength(errorMsg.size());
+				response.set("Authorization", auth_header.c_str());
+				std::ostream& out = response.send();
+				out << errorMsg.c_str();
+				return;
+			}
+			if (request.getContentLength() == 0)
+			{
+				CData errorMsg = "Bad Request";
 				CMMAccess::instance()->UpdateAuthHeader(errorMsg, auth_header, token);
 				response.setStatusAndReason(HTTPResponse::HTTP_BAD_REQUEST);
 				response.setContentType("text/plain; charset=UTF-8");
@@ -172,57 +159,64 @@ namespace CMM_SJY
 				out << errorMsg.c_str();
 				return;
 			}
-			else
+			static char msgBuf[CMCC_MAX_RESPONSE_BUFFER_SIZE];
+			//解析请求体
+			std::string requestBody;
+			try
 			{
-				CData soapXmlData = requestBody.c_str();
-				//LogInfo("recv SoapXmlData:" << requestBody.c_str());
-				responseData = CMMSoapXmllEncode::setSoapDeserialization(soapXmlData);
-				// 现在responseBody包含了整个XML内容，可以进行后续处理
-				//LogInfo("recv xmlData:" << responseData.c_str());
-				CMMAccess::instance()->UpdateAuthHeader(soapXmlData, auth_header, token);
-				std::string strAuth = request.get("Authorization");
-				CData requestToken = extractTokenFromCustomAuth(strAuth);
-				//LogInfo("recv Authorization:" << strAuth.c_str());
-				LogInfo("recv Auth token:" << requestToken.c_str() << " and Calculate the token:" << token.c_str());
-				if (requestToken != token)
+				// 直接读取整个响应体到字符串
+				std::istream& rs = request.stream();
+				requestBody.resize(static_cast<std::size_t>(request.getContentLength()));
+				rs.read(&requestBody[0], requestBody.size());
+
+				// 如果实际读取的字节数小于请求头中的Content-Length，说明可能读取不完整
+				if (rs.gcount() != static_cast<std::streamsize>(requestBody.size()))
 				{
-					memset(msgBuf, 0, strlen(msgBuf));
-					
-					CMMAccess::instance()->DoMsgProcessError((char*)responseData.c_str(), msgBuf, (int)CMCC_MAX_RESPONSE_BUFFER_SIZE,3);
-					std::string  errorMsg = msgBuf;
-					CData repSoapXml = CMMSoapXmllEncode::setSoapSerialization(errorMsg,0);
-					CMMAccess::instance()->UpdateAuthHeader(repSoapXml, auth_header, token);
-					LogInfo("send data header:" << auth_header.c_str());
-					response.setStatusAndReason(HTTPResponse::HTTP_OK);
-					response.setContentType("text/xml; charset=UTF-8");
-					response.setContentLength(repSoapXml.length());
+					CData errorMsg = "Read xmlData Incomplete reading";
+					CMMAccess::instance()->UpdateAuthHeader(errorMsg, auth_header, token);
+					response.setStatusAndReason(HTTPResponse::HTTP_BAD_REQUEST);
+					response.setContentType("text/plain; charset=UTF-8");
+					response.setContentLength(errorMsg.size());
 					response.set("Authorization", auth_header.c_str());
 					std::ostream& out = response.send();
-					out.write(repSoapXml.c_str(), repSoapXml.length()); // 直接使用write方法发送缓冲区内容，避免字符串拷贝
+					out << errorMsg.c_str();
 					return;
 				}
+				else
+				{
+					CData soapXmlData = requestBody.c_str();
+					//LogInfo("recv SoapXmlData:" << requestBody.c_str());
+					responseData = CMMSoapXmllEncode::setSoapDeserialization(soapXmlData);
+					// 现在responseBody包含了整个XML内容，可以进行后续处理
+					//LogInfo("recv xmlData:" << responseData.c_str());
+					CMMAccess::instance()->UpdateAuthHeader(soapXmlData, auth_header, token);
+					std::string strAuth = request.get("Authorization");
+					CData requestToken = extractTokenFromCustomAuth(strAuth);
+					//LogInfo("recv Authorization:" << strAuth.c_str());
+					LogInfo("recv Auth token:" << requestToken.c_str() << " and Calculate the token:" << token.c_str());
+					if (requestToken != token)
+					{
+						memset(msgBuf, 0, strlen(msgBuf));
+
+						CMMAccess::instance()->DoMsgProcessError((char*)responseData.c_str(), msgBuf, (int)CMCC_MAX_RESPONSE_BUFFER_SIZE, 3);
+						std::string  errorMsg = msgBuf;
+						CData repSoapXml = CMMSoapXmllEncode::setSoapSerialization(errorMsg, 0);
+						CMMAccess::instance()->UpdateAuthHeader(repSoapXml, auth_header, token);
+						LogInfo("send data header:" << auth_header.c_str());
+						response.setStatusAndReason(HTTPResponse::HTTP_OK);
+						response.setContentType("text/xml; charset=UTF-8");
+						response.setContentLength(repSoapXml.length());
+						response.set("Authorization", auth_header.c_str());
+						std::ostream& out = response.send();
+						out.write(repSoapXml.c_str(), repSoapXml.length()); // 直接使用write方法发送缓冲区内容，避免字符串拷贝
+						return;
+					}
+				}
 			}
-		}
-		catch (Poco::Exception& e)
-		{
-			// 处理异常情况
-			CData errorMsg = "Bad Request";
-			CMMAccess::instance()->UpdateAuthHeader(errorMsg, auth_header, token);
-			response.setStatusAndReason(HTTPResponse::HTTP_BAD_REQUEST);
-			response.setContentType("text/plain; charset=UTF-8");
-			response.setContentLength(errorMsg.size());
-			response.set("Authorization", auth_header.c_str());
-			std::ostream& out = response.send();
-			out << errorMsg.c_str();
-			return;
-		}
-		try
-		{
-			memset(msgBuf, 0, strlen(msgBuf));
-			int ret = CMMAccess::instance()->DoMsgProcess((char*)responseData.c_str(), msgBuf, (int)CMCC_MAX_RESPONSE_BUFFER_SIZE);
-			if (ret < 0)
+			catch (Poco::Exception& e)
 			{
-				CData errorMsg = "request data is not able to be parsed";
+				// 处理异常情况
+				CData errorMsg = "Bad Request";
 				CMMAccess::instance()->UpdateAuthHeader(errorMsg, auth_header, token);
 				response.setStatusAndReason(HTTPResponse::HTTP_BAD_REQUEST);
 				response.setContentType("text/plain; charset=UTF-8");
@@ -232,48 +226,73 @@ namespace CMM_SJY
 				out << errorMsg.c_str();
 				return;
 			}
-			std::string repXml = msgBuf;
-			CData repSoapXml = CMMSoapXmllEncode::setSoapSerialization(repXml,0);
-			CMMAccess::instance()->UpdateAuthHeader(repSoapXml, auth_header, token);
-			LogInfo("send data header:" << auth_header.c_str());
-			response.setStatusAndReason(HTTPResponse::HTTP_OK);
-			response.setContentType("text/xml; charset=UTF-8");
-			response.setContentLength(repSoapXml.length());
-			response.set("Authorization", auth_header.c_str());
-			std::ostream& out = response.send();
-			out.write(repSoapXml.c_str(), repSoapXml.length());
+			try
+			{
+				memset(msgBuf, 0, strlen(msgBuf));
+				int ret = CMMAccess::instance()->DoMsgProcess((char*)responseData.c_str(), msgBuf, (int)CMCC_MAX_RESPONSE_BUFFER_SIZE);
+				if (ret < 0)
+				{
+					CData errorMsg = "request data is not able to be parsed";
+					CMMAccess::instance()->UpdateAuthHeader(errorMsg, auth_header, token);
+					response.setStatusAndReason(HTTPResponse::HTTP_BAD_REQUEST);
+					response.setContentType("text/plain; charset=UTF-8");
+					response.setContentLength(errorMsg.size());
+					response.set("Authorization", auth_header.c_str());
+					std::ostream& out = response.send();
+					out << errorMsg.c_str();
+					return;
+				}
+				std::string repXml = msgBuf;
+				CData repSoapXml = CMMSoapXmllEncode::setSoapSerialization(repXml, 0);
+				CMMAccess::instance()->UpdateAuthHeader(repSoapXml, auth_header, token);
+				LogInfo("send data header:" << auth_header.c_str());
+				response.setStatusAndReason(HTTPResponse::HTTP_OK);
+				response.setContentType("text/xml; charset=UTF-8");
+				response.setContentLength(repSoapXml.length());
+				response.set("Authorization", auth_header.c_str());
+				std::ostream& out = response.send();
+				out.write(repSoapXml.c_str(), repSoapXml.length());
+			}
+			catch (Poco::Exception& e)
+			{
+				LogError("handleRequest caught an exception: name:" << e.name() << ", what:" << e.what() << ", text:" << e.displayText());
+				// 异常情况下，发送一个通用的错误响应
+				CData errorMsg = "internal server error";
+				CMMAccess::instance()->UpdateAuthHeader(errorMsg, auth_header, token);
+				response.setStatusAndReason(HTTPResponse::HTTP_BAD_REQUEST);
+				response.setContentType("text/plain; charset=UTF-8");
+				response.setContentLength(errorMsg.size());
+				response.set("Authorization", auth_header.c_str());
+				std::ostream& out = response.send();
+				out << errorMsg.c_str();
+			}
+			catch (...)
+			{
+				LogError("handleRequest caught an unknown exception.");
+				// 未知异常，发送一个通用的错误响应
+				CData errorMsg = "Unknown error occurred";
+				CMMAccess::instance()->UpdateAuthHeader(errorMsg, auth_header, token);
+				response.setStatusAndReason(HTTPResponse::HTTP_BAD_REQUEST);
+				response.setContentType("text/plain; charset=UTF-8");
+				response.setContentLength(errorMsg.size());
+				response.set("Authorization", auth_header.c_str());
+				std::ostream& out = response.send();
+				out << errorMsg.c_str();
+			}
 		}
-		catch (Poco::Exception& e)
+		else
 		{
-			LogError("handleRequest caught an exception: name:" << e.name() << ", what:" << e.what() << ", text:" << e.displayText());
-			// 异常情况下，发送一个通用的错误响应
-			CData errorMsg = "internal server error";
-			CMMAccess::instance()->UpdateAuthHeader(errorMsg, auth_header, token);
-			response.setStatusAndReason(HTTPResponse::HTTP_BAD_REQUEST);
+			// 设置响应状态码和头部  
+			response.setStatusAndReason(HTTPResponse::HTTP_NOT_FOUND);
 			response.setContentType("text/plain; charset=UTF-8");
-			response.setContentLength(errorMsg.size());
-			response.set("Authorization", auth_header.c_str());
-			std::ostream& out = response.send();
-			out << errorMsg.c_str();
+			response.send();
 		}
-		catch (...)
-		{
-			LogError("handleRequest caught an unknown exception.");
-			// 未知异常，发送一个通用的错误响应
-			CData errorMsg = "Unknown error occurred";
-			CMMAccess::instance()->UpdateAuthHeader(errorMsg, auth_header, token);
-			response.setStatusAndReason(HTTPResponse::HTTP_BAD_REQUEST);
-			response.setContentType("text/plain; charset=UTF-8");
-			response.setContentLength(errorMsg.size());
-			response.set("Authorization", auth_header.c_str());
-			std::ostream& out = response.send();
-			out << errorMsg.c_str();
-		}
+		
 
 		// 检查响应是否成功发送  
 		if (response.sent())
 		{
-			LogNotice("Response sent successfully.");
+			LogNotice("Response send successfully.");
 		}
 		else
 		{

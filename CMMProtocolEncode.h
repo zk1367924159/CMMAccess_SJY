@@ -26,9 +26,10 @@ namespace CMM_SJY
 		static CData BuildGetDataRsp(int result, std::map<CData, std::list<TSemaphore> > &devMap);
 		static CData BuildGetStorageRuleRsp(int result,  std::map<CData, std::list<TSignal> > &devMap );
 		static CData BuildGetThresholdRsp(int result, std::map<CData, std::list<TThreshold> >&devMap);			
-		static CData BuildAalrmReportInfo(std::list<TAlarm>&alarmList);
+		static CData BuildAlarmReportInfo(std::list<TAlarm>&alarmList);
 		static CData BuildDataReport(std::map<CData, std::list<TSemaphore>>& mapSem);
 		static CData BuildGetFtpInfoRsp();
+		static CData BuildSetLoginRsp(int result, CData reason, CData type);
 		static CData BuildGeneralRsp(int result, CData reason, CData type);
 		static CData BuildGetLoginInfoRsp();
 		static CData BuildGetTimeRsp(int result, CData reason, CData type);

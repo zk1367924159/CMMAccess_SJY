@@ -15,41 +15,41 @@ namespace CMM_SJY{
 		CData m_fsuId;
 		CData m_userName;
 		CData m_password;
-		CData m_RoomID;
-		CData m_RoomName;
-		CData m_SiteID;
-		CData m_SiteName;
 		CData m_DevCfgFileName;
 		static CMMConfig *_instance;
 		ISFIT::CXmlDoc m_doc;
 		std::map<CData, TDevConf> m_devCfg;
-		std::map<CData, CData> m_dictionary;  //±àºÅ -- Ãû³Æ
+		std::map<CData, CData> m_dictionary;  //ç¼–å· -- åç§°
 		CData m_ftpUsr;
 		CData m_ftpPasswd;
 		CData m_fsuIp;
 		CData m_fsuPort;
+		CData m_udpPort;
 		CData m_scIp;
 		CData m_scPort;
+		CData m_scUdpIp;
+		CData m_scUdpPort;
 		CData m_scIpRoute;
 		CData m_fsuConfigTime;
 	
 		CData m_heartbeatTimeout;
-
 		CData m_loginTimeout;
+		CData m_getMeasureMentTime; //è·å–ç›‘æ§ç‚¹æ€§èƒ½æ•°æ®æ–‡ä»¶é—´éš”æ—¶é—´ /å•ä½ åˆ†é’Ÿ
 
-		CData m_getMeasureMentTime; //»ñÈ¡¼à¿ØµãĞÔÄÜÊı¾İÎÄ¼ş¼ä¸ôÊ±¼ä /µ¥Î» ·ÖÖÓ
+		CData m_SiteID;
+		CData m_SiteName;
+		CData m_RoomID;
+		CData m_RoomName;
+		std::map<CData, TDeviceInfo> m_aliasId2Info;  //è®¾å¤‡åˆ«åID---ã€‹è®¾å¤‡ä¿¡æ¯
 
-		CData m_level1DlyTime;
-		CData m_level2DlyTime;
-		CData m_level3DlyTime;
-		CData m_level4DlyTime;
 		CData m_fsuVersion;
 		bool m_bUpdate;
+		bool m_bUpdateBak;
 		
 		CData m_IgnoreAlarmLevel;
 		std::vector<int> m_IgnoreAlarmLevelVec;
 	    std::list <CData> m_devIdList;
-		std::map <CData,int> m_dev2MeterList;  //Ã¿¸ödevÏÂ Á¿µÄ¸öÊı
+		std::map <CData,int> m_dev2MeterList;  //æ¯ä¸ªdevä¸‹ é‡çš„ä¸ªæ•°
 		ISFIT::CSmartMutex m_devCfgMutex;
 		std::map<CData, std::list<CData>> m_familyIPList;
 	public:
@@ -65,6 +65,7 @@ namespace CMM_SJY{
 		CData GetFsuId();
 		void SetFsuId(CData fsuId);
 		void SetFsuPort(CData port);
+		void SetUdpPort(CData port);
 		CData GetFsuPort();
 		CData GetFsuIp();
 		void SetFsuIp(CData ip);
@@ -74,16 +75,7 @@ namespace CMM_SJY{
 		void SetPassword(CData password,bool saveDb=false);
 		int SetFtpPasswd( CData usr , bool saveDb=false);
 		int SetFtpUsr(CData usr, bool saveDb=false);
-		CData GetFsuConfigTime();
-		void SetFsuConfigTime( CData time );
-		CData GetSiteID();
-		CData GetSiteName();
-		void SetSiteID(CData SiteID,bool saveDb=false);
-		void SetSiteName( CData SiteName ,bool saveDb=false);
-		CData GetRoomID();
-		CData GetRoomName();
-		void SetRoomID(CData RoomID,bool saveDb=false);
-		void SetRoomName( CData RoomName,bool saveDb=false);
+
 		std::map<CData, TDevConf> &GetDevices();
 		int GetDevConf(CData devid, TDevConf& cfg);
 		int SetSemaphoreConf(CData devid, TSemaphore& cfg);

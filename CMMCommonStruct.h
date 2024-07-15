@@ -32,14 +32,9 @@ namespace CMM_SJY{
 		const char* const RoomName = "机房名称";
 		const char* const xx = "经度";
 		const char* const yy = "纬度";
-
-		const char* const Level1Time = "一级告警延时(x,y)";
-		const char* const Level2Time = "二级告警延时(x,y)";
-		const char* const Level3Time = "三级告警延时(x,y)";
-		const char* const Level4Time = "四级告警延时(x,y)";
+		
 		
 		const char* const FsuId  = "设备ID";
-	//	const char* const FsuCode  = "设备Code";
 		const char* const UserName = "设备账号";
 		const char* const Password = "设备密码";
 		const char* const AlgType = "散列算法";
@@ -47,23 +42,40 @@ namespace CMM_SJY{
 		const char* const FtpPasswd = "FTP密码";
 		const char* const FtpUserName = "FTP账号";
 		const char* const FtpPassword = "FTP密码";
+		const char* const DeviceListJson = "设备列表Json";
 		const char* const IgnoreAlarmLevel = "过滤告警级别(如2,3)";
 		const char* const HeartBeatTimeout = "心跳超时（秒）";
 		const char* const LoginTimeout = "注册超时（秒）";
 		const char* const GetMeasurementTime= "监控数据文件（分）";
 		const char* const SCEndPoint = "CMM.SCEndPoint";
-		const char* const FSUEndPoint = "CMM.FSUEndPoint";
-		const char* const SCIp = "平台IP";
-		const char* const SCPort = "平台端口";
+		const char* const FsuEndPoint = "CMM.FSUEndPoint";
+		
+		const char* const SCDomain = "平台域名";
+		const char* const SCIp = "TCP平台IP";
+		const char* const SCPort = "TCP平台端口";
+		const char* const SCUdpIp = "UDP平台IP";
+		const char* const SCUdpPort = "UDP平台端口";
 		const char* const SCIpRoute = "平台路由";
-		const char* const FSUIp = "设备IP";
-		const char* const FSUPort = "设备端口";
+		const char* const FsuIp = "设备IP";
+		const char* const FsuPort = "TCP服务端口";
+		const char* const UdpPort = "UDP服务端口";
+		const char* const WebPort = "WEB服务端口";
 		const char* const DevCfgTime = "设备配置时间";
-		const char* const LoginState = "注册状态";
+		const char* const LoginState = "TCP注册状态";
+		const char* const UdpLoginState = "UDP注册状态";
 		const char* const LoginFailTime = "注册失败（小时）";
 		const char* const LogFileSize = "日志大小(Mb)";
 		const char* const LogLevel = "日志级别";
 		const char* const SoftVer = "软件版本";
+
+		const char* const IsUart = "是否打开串口1/0";
+		const char* const UartName = "串口名";
+		const char* const BaudRate = "串口波特率";
+		const char* const DataBit = "串口数据位";
+		const char* const Parity = "串口校验位"; 
+		const char* const StopBit = "串口停止位";
+		const char* const SlaveID = "串口地址号";
+		
 	}
 const char* const Request = "Request";
 const char* const Response = "Response";
@@ -158,6 +170,7 @@ enum EnumType
 	AI = 3,  //模拟输入 遥测
 	DO = 1,  //数字输出 遥控
 	AO = 2,  //模拟输出 遥调
+	ALARM = 0,  //告警
 };
 
 enum EnumState
@@ -203,8 +216,8 @@ typedef struct		  sTDevConf
 	CData SiteName;
 	CData RoomID;
 	CData SiteID;
-	int DeviceType;
-	int DeviceSubType;
+	CData DeviceType;
+	CData DeviceSubType;
 	CData Model;
 	CData Brand;
 	float RatedCapacity;
@@ -278,7 +291,20 @@ typedef struct
 	int RightLevel;
 }TServerStatus;
 
-
-
+typedef struct
+{
+	CData DeviceNo;   //设备编码
+	CData AliasDeviceNo;   //设备别名编码
+	CData DeviceName; //设备名称
+	CData AliasDeviceName;//设备别名
+	CData ParentDeviceID;//父设备ID
+	CData DeviceSubType;//类型子设备
+	CData Brand;//设备品牌
+	CData Model;//设备型号
+	CData Desc;//描述
+	CData RatedCapacity;//额定容量
+	CData Version;//版本
+	CData BeginRunTime;//启用时间
+}TDeviceInfo;
 }
 #endif

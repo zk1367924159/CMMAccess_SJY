@@ -214,7 +214,7 @@ namespace CMM_SJY
 			&&(method.compareNoCase(CMM_SJY::method::SET_LOGININFO) !=0)
 			&&(method.compareNoCase(CMM_SJY::method::TIME_CHECK)!=0)) || ((len==0&&len2==0)&&(method.compareNoCase(CMM_SJY::method::SET_LOGININFO) !=0)&&(method.compareNoCase(CMM_SJY::method::TIME_CHECK)!=0)))
 		{			
-			CData rsp = CMMProtocolEncode::BuildGeneralRsp(CMM_SJY::FAILURE, "fsuid invalid", method+"_ACK");
+			CData rsp = CMMProtocolEncode::BuildSetLoginRsp(CMM_SJY::FAILURE, "fsuid invalid", method+"_ACK");
 			response.SetResponseXml(rsp);
 		}
 		else
@@ -361,13 +361,13 @@ namespace CMM_SJY
 						int type = CMeteTranslate::Instance()->ConvertToCmmMeterType(attr["meterType"]);
 						//int alarmLevel = attr["alarmLevel"].convertInt();
 						int nType = meterId.substr(3, 1).convertInt();  //第四位判断类型
-						if (nType == 0 || nType == 5)
-						{
-							type = CMM_SJY::DI;
-						}
-						else
+						if (nType < 5)
 						{
 							type = nType;
+						}
+						else if (nType == 5)
+						{
+							type = CMM_SJY::ALARM;
 						}
 						CMMConfig::instance()->SetMeteValues(attr, rspSemaphore, type);
 						rspSemaphoreList.push_back(rspSemaphore);
@@ -390,7 +390,6 @@ namespace CMM_SJY
 				if (reqMeterIdList.size() > 0)
 				{
 					TDevConf cfg = {0};
-					CData NMAlarmID;			
 					int signalNum=1;
 					if(CMMConfig::instance()->GetDevConf(devId, cfg) < 0)
 					{
@@ -418,13 +417,13 @@ namespace CMM_SJY
 							int type = CMeteTranslate::Instance()->ConvertToCmmMeterType(attr["meterType"]);
 							//int alarmLevel = attr["alarmLevel"].convertInt();
 							int nType = meterId.substr(3, 1).convertInt();  //第四位判断类型
-							if (nType == 0 || nType == 5)
-							{
-								type = CMM_SJY::DI;
-							}
-							else
+							if (nType < 5)
 							{
 								type = nType;
+							}
+							else if (nType == 5)
+							{
+								type = CMM_SJY::ALARM;
 							}
 							CMMConfig::instance()->SetMeteValues(attr, rspSemaphore, type);
 							rspSemaphoreList.push_back(rspSemaphore);
@@ -463,13 +462,13 @@ namespace CMM_SJY
 							int type = CMeteTranslate::Instance()->ConvertToCmmMeterType(attr["meterType"]);
 							//int alarmLevel = attr["alarmLevel"].convertInt();
 							int nType = meterId.substr(3, 1).convertInt();  //第四位判断类型
-							if (nType == 0 || nType == 5)
-							{
-								type = CMM_SJY::DI;
-							}
-							else
+							if (nType < 5)
 							{
 								type = nType;
+							}
+							else if (nType == 5)
+							{
+								type = CMM_SJY::ALARM;
 							}
 							CMMConfig::instance()->SetMeteValues(attr, rspSemaphore, type);
 							rspSemaphoreList.push_back(rspSemaphore);
@@ -521,9 +520,9 @@ namespace CMM_SJY
 		
 		CData rsp;
 		if(ret>=0)
-			rsp = CMMProtocolEncode::BuildGeneralRsp(CMM_SJY::SUCCESS, "NULL", CMM_SJY::method::TIME_CHECK_ACK);
+			rsp = CMMProtocolEncode::BuildSetLoginRsp(CMM_SJY::SUCCESS, "NULL", CMM_SJY::method::TIME_CHECK_ACK);
 		else
-			rsp = CMMProtocolEncode::BuildGeneralRsp(CMM_SJY::FAILURE, "字段错误或时间错误", CMM_SJY::method::TIME_CHECK_ACK);		
+			rsp = CMMProtocolEncode::BuildSetLoginRsp(CMM_SJY::FAILURE, "字段错误或时间错误", CMM_SJY::method::TIME_CHECK_ACK);		
 		
 		response.SetResponseXml(rsp);
 		return 0;
@@ -531,7 +530,7 @@ namespace CMM_SJY
 
 	int MsgProcess::OnReboot( CMMMsg& request, CMMMsg & response )
 	{
-		CData rsp = CMMProtocolEncode::BuildGeneralRsp(CMM_SJY::SUCCESS, "NULL", CMM_SJY::method::SET_FSUREBOOT_ACK);
+		CData rsp = CMMProtocolEncode::BuildSetLoginRsp(CMM_SJY::SUCCESS, "NULL", CMM_SJY::method::SET_FSUREBOOT_ACK);
 		response.SetResponseXml(rsp);	
 		LogNotice("===MsgProcess::OnReboot()===");
 		APPAPI::RebootSys();
@@ -652,13 +651,13 @@ namespace CMM_SJY
 						int type = CMeteTranslate::Instance()->ConvertToCmmMeterType(attr["meterType"]);
 						//int alarmLevel = attr["alarmLevel"].convertInt();
 						int nType = meterId.substr(3, 1).convertInt();  //第四位判断类型
-						if (nType == 0 || nType == 5)
-						{
-							type = CMM_SJY::DI;
-						}
-						else
+						if (nType < 5)
 						{
 							type = nType;
+						}
+						else if (nType == 5)
+						{
+							type = CMM_SJY::ALARM;
 						}
 						CMMConfig::instance()->SetMeteThreshold(attr, rspMeter, type);
 						
@@ -703,7 +702,7 @@ namespace CMM_SJY
 						LogInfo("~~~~~~~devid: " <<devId.c_str() <<"meterID: "<<meterId);
 						std::map<CData,CData> attr;
 						APPAPI::GetMeterParam(devId, meterId, "alias", attr);
-						if(attr["meterId"]!="")
+						if (ThresholdIdFilter(attr))
 						{
 							TThreshold rspMeter;
 							rspMeter.ID = reqMeterId.ID;
@@ -712,13 +711,13 @@ namespace CMM_SJY
 							int type = CMeteTranslate::Instance()->ConvertToCmmMeterType(attr["meterType"]);
 							//int alarmLevel = attr["alarmLevel"].convertInt();
 							int nType = meterId.substr(3, 1).convertInt();  //第四位判断类型
-							if (nType == 0 || nType == 5)
-							{
-								type = CMM_SJY::DI;
-							}
-							else
+							if (nType < 5)
 							{
 								type = nType;
+							}
+							else if (nType == 5)
+							{
+								type = CMM_SJY::ALARM;
 							}
 							CMMConfig::instance()->SetMeteThreshold(attr, rspMeter, type);
 							rspMeterList.push_back(rspMeter);
@@ -759,13 +758,13 @@ namespace CMM_SJY
 							int type = CMeteTranslate::Instance()->ConvertToCmmMeterType(attr["meterType"]);
 							//int alarmLevel = attr["alarmLevel"].convertInt();
 							int nType = meterId.substr(3, 1).convertInt();  //第四位判断类型
-							if (nType == 0 || nType == 5)
-							{
-								type = CMM_SJY::DI;
-							}
-							else
+							if (nType < 5)
 							{
 								type = nType;
+							}
+							else if (nType == 5)
+							{
+								type = CMM_SJY::ALARM;
 							}
 							CMMConfig::instance()->SetMeteThreshold(attr, rspMeter, type);
 							rspMeterList.push_back(rspMeter);
@@ -808,7 +807,16 @@ namespace CMM_SJY
 			std::list<TThreshold>::iterator subPos = pos->second.begin();
 			while(subPos != pos->second.end())
 			{
-				//LogInfo("DecodeSetThreshold devID : "<< pos->first.c_str());
+				LogInfo("DecodeSetThreshold devID : "<< pos->first.c_str());
+				if (subPos->Type != CMM_SJY::DI)
+				{
+					bOK = false;
+					failedCause = "该类型量无法设置门限值";
+					subPos->result = 0;
+					subPos++;
+					LogInfo("DecodeSetThreshold 该类型量无法设置门限值 : " << subPos->Type);
+					continue;
+				}
 				if(CMMConfig::instance()->SetThresholdConf(pos->first, *subPos) < 0)
 				{
 					//bFault = true;
@@ -857,11 +865,11 @@ namespace CMM_SJY
 			//FSUUTIL::SetFtpUser(user, password);
 			CMMConfig::instance()->SetFtpUsr(user, true);
 			CMMConfig::instance()->SetFtpPasswd(password, true);
-			rsp = CMMProtocolEncode::BuildGeneralRsp(CMM_SJY::SUCCESS, "NULL", CMM_SJY::method::SET_FTP_ACK);
+			rsp = CMMProtocolEncode::BuildSetLoginRsp(CMM_SJY::SUCCESS, "NULL", CMM_SJY::method::SET_FTP_ACK);
 		}
 		else
 		{
-			rsp = CMMProtocolEncode::BuildGeneralRsp(CMM_SJY::FAILURE, "NULL", CMM_SJY::method::SET_FTP_ACK);
+			rsp = CMMProtocolEncode::BuildSetLoginRsp(CMM_SJY::FAILURE, "NULL", CMM_SJY::method::SET_FTP_ACK);
 		}
   	
 		response.SetResponseXml(rsp);
@@ -876,13 +884,13 @@ namespace CMM_SJY
 		CData rsp;
 		if(password.length() == 0)
 		{
-			rsp = CMMProtocolEncode::BuildGeneralRsp(CMM_SJY::FAILURE, "error", CMM_SJY::method::SET_LOGININFO_ACK);
+			rsp = CMMProtocolEncode::BuildSetLoginRsp(CMM_SJY::FAILURE, "error", CMM_SJY::method::SET_LOGININFO_ACK);
 		}
 		else
 		{
 			CMMConfig::instance()->SetUserName(user,true);
 			CMMConfig::instance()->SetPassword(password,true);
-			rsp = CMMProtocolEncode::BuildGeneralRsp(CMM_SJY::SUCCESS, "NULL", CMM_SJY::method::SET_LOGININFO_ACK);
+			rsp = CMMProtocolEncode::BuildSetLoginRsp(CMM_SJY::SUCCESS, "NULL", CMM_SJY::method::SET_LOGININFO_ACK);
 		}
 		response.SetResponseXml(rsp);
 		return 0;
@@ -900,7 +908,7 @@ namespace CMM_SJY
 		ISFIT::CXmlElement info = request.GetInfoNode();
 		CData interval = info.GetSubElement("Interval").GetElementText().convertString();	
 		CMMAccess::instance()->UpdateInterval(interval);
-		CData rsp = CMMProtocolEncode::BuildGeneralRsp(CMM_SJY::SUCCESS,"NULL", CMM_SJY::method::UPDATE_FSUINFO_INTERVAL_ACK);
+		CData rsp = CMMProtocolEncode::BuildSetLoginRsp(CMM_SJY::SUCCESS,"NULL", CMM_SJY::method::UPDATE_FSUINFO_INTERVAL_ACK);
 		response.SetResponseXml(rsp);
 		return 0;
 	}
@@ -916,7 +924,7 @@ namespace CMM_SJY
 		std::map<CData, std::list<TSignal> > rspDevMap;
 		
 		std::map<CData, std::list<TSignal> > reqDevMap;
-		CProtocolDecode::DecodeGetDeviceList(deviceList, reqDevMap);	
+		CProtocolDecode::DecodeGetStorageRuleList(deviceList, reqDevMap);
 		bool bOK=true;
 		LogInfo("reqDevMap size :" << reqDevMap.size());
 		if (0 == reqDevMap.size())
@@ -953,13 +961,13 @@ namespace CMM_SJY
 						int type = CMeteTranslate::Instance()->ConvertToCmmMeterType(attr["meterType"]);
 						//int alarmLevel = attr["alarmLevel"].convertInt();
 						int nType = meterId.substr(3, 1).convertInt();  //第四位判断类型
-						if (nType == 0 || nType == 5)
-						{
-							type = CMM_SJY::DI;
-						}
-						else
+						if (nType < 5)
 						{
 							type = nType;
+						}
+						else if (nType == 5)
+						{
+							type = CMM_SJY::ALARM;
 						}
 						CMMConfig::instance()->SetMeteStorageRule(attr, rspMeter, type);
 						rspMeterList.push_back(rspMeter);
@@ -1028,13 +1036,13 @@ namespace CMM_SJY
 							int type = CMeteTranslate::Instance()->ConvertToCmmMeterType(attr["meterType"]);
 							//int alarmLevel = attr["alarmLevel"].convertInt();
 							int nType = meterId.substr(3, 1).convertInt();  //第四位判断类型
-							if (nType == 0 || nType == 5)
-							{
-								type = CMM_SJY::DI;
-							}
-							else
+							if (nType < 5)
 							{
 								type = nType;
+							}
+							else if (nType == 5)
+							{
+								type = CMM_SJY::ALARM;
 							}
 							CMMConfig::instance()->SetMeteStorageRule(attr, rspMeter, type);
 							rspMeterList.push_back(rspMeter);
@@ -1073,13 +1081,13 @@ namespace CMM_SJY
 							int type = CMeteTranslate::Instance()->ConvertToCmmMeterType(attr["meterType"]);
 							//int alarmLevel = attr["alarmLevel"].convertInt();
 							int nType = meterId.substr(3, 1).convertInt();  //第四位判断类型
-							if (nType == 0 || nType == 5)
-							{
-								type = CMM_SJY::DI;
-							}
-							else
+							if (nType < 5)
 							{
 								type = nType;
+							}
+							else if (nType == 5)
+							{
+								type = CMM_SJY::ALARM;
 							}
 							CMMConfig::instance()->SetMeteStorageRule(attr, rspMeter, type);
 							rspMeterList.push_back(rspMeter);
@@ -1185,14 +1193,14 @@ namespace CMM_SJY
 			list = acceptList.GetSubElement("List", idIndex++);
 			CMMConfig::instance()->addAcceptIP(familyType, ipList);
 		}
-		CData rsp = CMMProtocolEncode::BuildGeneralRsp(CMM_SJY::SUCCESS, "NULL", CMM_SJY::method::SET_ACCEPT_IP_CONF_ACK);
+		CData rsp = CMMProtocolEncode::BuildSetLoginRsp(CMM_SJY::SUCCESS, "NULL", CMM_SJY::method::SET_ACCEPT_IP_CONF_ACK);
 		response.SetResponseXml(rsp);
 		return 0;
 	}
 
 	int MsgProcess::OnSetFsuReboot(CMMMsg& request, CMMMsg& response)
 	{
-		CData rsp = CMMProtocolEncode::BuildGeneralRsp(CMM_SJY::SUCCESS, "NULL", CMM_SJY::method::SET_FSUREBOOT_ACK);
+		CData rsp = CMMProtocolEncode::BuildSetLoginRsp(CMM_SJY::SUCCESS, "NULL", CMM_SJY::method::SET_FSUREBOOT_ACK);
 		response.SetResponseXml(rsp);
 		APPAPI::RebootSys();
 		return 0;

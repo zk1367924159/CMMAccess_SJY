@@ -4,6 +4,7 @@
 #include <fstream>  
 #include <algorithm>  
 #include "CMMConfig.h"
+#include "CMMDeviceConfig.h"
 #include "CLog.h"
 #include "CMMMeteTranslate.h"
 #include "CMMProtocolEncode.h"
@@ -27,9 +28,9 @@ namespace CMM_SJY{
 
 	CMMConfig* CMMConfig::instance()
 	{
-		if(_instance == NULL){
+		if(_instance == NULL)
+		{
 			_instance = new CMMConfig();
-			_instance->m_bUpdate=true;
 		}
 		return _instance;
 	}
@@ -81,30 +82,30 @@ namespace CMM_SJY{
 
 	int CMMConfig::Init()
 	{
+
+		m_fsuId = GetParam(CMM_SJY::param::FsuId, "");
+		//m_FsuCode = GetParam(CTower::param::FsuCode, "");
+		m_fsuIp = GetParam(CMM_SJY::param::FsuIp, "");
+		m_fsuPort = GetParam(CMM_SJY::param::FsuPort, "");
+		m_fsuConfigTime = GetParam(CMM_SJY::param::DevCfgTime, "");
+
+		m_userName = GetParam(CMM_SJY::param::UserName, "");
+		m_password = GetParam(CMM_SJY::param::Password, "");
+		m_ftpUsr = GetParam(CMM_SJY::param::FtpUsr, "");
+		m_ftpPasswd = GetParam(CMM_SJY::param::FtpPasswd, "");
+	
+		m_scIp =  GetParam(CMM_SJY::param::SCIp, "");
+		m_scPort =  GetParam(CMM_SJY::param::SCPort, "");
+ 		m_scUdpIp = GetParam(CMM_SJY::param::SCUdpIp, "");
+		m_scUdpPort = GetParam(CMM_SJY::param::SCUdpPort, "");
+		m_scIpRoute =  GetParam(CMM_SJY::param::SCIpRoute, "");
+
 		m_SiteID = GetParam(CMM_SJY::param::SiteID, "");
 		m_SiteName = GetParam(CMM_SJY::param::SiteName, "");
 		m_RoomID = GetParam(CMM_SJY::param::RoomID, "");
 		m_RoomName = GetParam(CMM_SJY::param::RoomName, "");
 
-		m_fsuId = GetParam(CMM_SJY::param::FsuId, "");
-		//m_FsuCode = GetParam(CTower::param::FsuCode, "");
-		m_fsuIp = GetParam(CMM_SJY::param::FSUIp, "");
-		m_fsuPort = GetParam(CMM_SJY::param::FSUPort, "");
-		m_fsuConfigTime = GetParam(CMM_SJY::param::DevCfgTime, "");
-		m_userName = GetParam(CMM_SJY::param::UserName, "");
-		m_password = GetParam(CMM_SJY::param::Password, "");
-
-		m_ftpUsr = GetParam(CMM_SJY::param::FtpUsr, "");
-		m_ftpPasswd = GetParam(CMM_SJY::param::FtpPasswd, "");
-
-		/*m_level1DlyTime = GetParam(CMM_SJY::param::Level1Time, "");
-		m_level2DlyTime = GetParam(CMM_SJY::param::Level2Time, "");
-		m_level3DlyTime = GetParam(CMM_SJY::param::Level3Time, "");*/
 		
-
-		m_scIp =  GetParam(CMM_SJY::param::SCIp, "");
-		m_scPort =  GetParam(CMM_SJY::param::SCPort, "");
-		m_scIpRoute =  GetParam(CMM_SJY::param::SCIpRoute, "");
 		m_IgnoreAlarmLevel = GetParam(CMM_SJY::param::IgnoreAlarmLevel, "");
 		m_IgnoreAlarmLevelVec.clear();
 		if(m_IgnoreAlarmLevel.length()>0)
@@ -129,6 +130,37 @@ namespace CMM_SJY{
 		return 0;
 	}
 
+
+	std::vector<std::string> extractValues(const std::string& input) 
+	{
+		std::vector<std::string> values;
+		std::istringstream iss(input);
+		std::string value;
+
+		while (std::getline(iss, value, ',')) 
+		{
+			// 移除可能的空白字符（如果有的话）  
+			value.erase(std::remove_if(value.begin(), value.end(), isspace), value.end());
+			values.push_back(value);
+		}
+
+		return values;
+	}
+
+	// 使用初始化列表的示例  
+	bool areVectorsEqualSize(std::initializer_list<const std::vector<std::string>*> vecs) 
+	{
+		if (vecs.size() == 0) return true; // 空列表，认为所有vector大小相等  
+
+		size_t size = (*vecs.begin())->size(); // 假设第一个vector非空  
+		for (const auto* vec : vecs) {
+			if (!vec || vec->size() != size) {
+				return false;
+			}
+		}
+		return true;
+	}
+
 	void CMMConfig::ReadCMMConfigData()
 	{
 		ISFIT::CXmlDoc doc;
@@ -147,7 +179,7 @@ namespace CMM_SJY{
 			ISFIT::CXmlElement temElement = templates.GetSubElement("template", nIndex++);
 			while (temElement != NULL)
 			{
-
+				
 				CData strPlatFrom = temElement.GetAttribute("platform");
 			/*	LogInfo("strPlatFrom : " << strPlatFrom.c_str());*/
 				if (strPlatFrom.compare("cmm") == 0)
@@ -302,6 +334,7 @@ namespace CMM_SJY{
 		ReadDevCfgFromObj(devIdList);
 		SaveFile();
 		m_bUpdate=true;
+		m_bUpdateBak = true;
 	}
 
 	//canyon
@@ -311,23 +344,37 @@ namespace CMM_SJY{
 		for (auto it=devIdList.begin(); it!=devIdList.end(); it++)
 		{
 			CData aliasDevId = *it;
-			LogInfo("--------aliasDevId :"<<aliasDevId);
+			if (aliasDevId.length() < 4)
+				continue;
+			
 
 			std::map<CData,CData> paramMap;
 			APPAPI::GetDevParam(aliasDevId,"alias", paramMap,5000);
 				
+			CData devId = paramMap["devId"];
 			CData deviceName = paramMap["aliasDevName"];
 			TDevConf dev={0};
 			dev.DeviceID =aliasDevId;
 			dev.DeviceName = deviceName;
-			dev.DeviceType = aliasDevId.substr(0,2).convertInt();
-			dev.DeviceSubType = aliasDevId.substr(2,2).convertInt();
+			dev.DeviceType = aliasDevId.substr(0,2);
+			dev.DeviceSubType = aliasDevId.substr(2,2);
+			LogInfo("--------aliasDevId :" << aliasDevId << " deviceID:" << devId);
+			auto iter = CMMDeviceConfig::instance()->GetDevices().find(devId);
+			if (iter != CMMDeviceConfig::instance()->GetDevices().end())
+			{
+				TDeviceInfo& sinfo = iter->second;
+				dev.Brand = sinfo.Brand;
+				dev.Model = sinfo.Model;
+				dev.DevDescribe = sinfo.Desc;
+				dev.Version = sinfo.Version;
+				dev.RatedCapacity = sinfo.RatedCapacity.convertDouble();
+				dev.BeginRunTime = sinfo.BeginRunTime;
+				dev.DeviceSubType = sinfo.DeviceSubType;
+			}
 			dev.SiteID = m_SiteID;
 			dev.SiteName = m_SiteName;
 			dev.RoomID = m_RoomID;
 			dev.RoomName = m_RoomName;
-			dev.Version = m_fsuVersion;
-			
 			std::set<CData> attrSet;
 			attrSet.insert("meterId");
 			attrSet.insert("meterType");
@@ -353,13 +400,13 @@ namespace CMM_SJY{
 					TSignal signal;
 					signal.Type = CMeteTranslate::Instance()->ConvertToCmmMeterType(attr["meterType"]);
 					int nType = meterId.substr(3, 1).convertInt();  //第四位判断类型
-					if (nType == 0 || nType == 5)
-					{
-						signal.Type = CMM_SJY::DI;
-					}
-					else
+					if (nType < 5)
 					{
 						signal.Type = nType;
+					}
+					else if(nType == 5)
+					{
+						signal.Type = CMM_SJY::ALARM;
 					}
 					signal.AlarmLevel = alarmLevel;
 					signal.Threshold = threshold;
@@ -444,34 +491,37 @@ namespace CMM_SJY{
 		bool bOK=false;
 		for (auto it=devMap.begin(); it!=devMap.end(); it++)
 		{
-			CData devid = it->first;
+			CData aliasDevId = it->first;
 			TDevConf& devConf = it->second;
+
+			std::map<CData, CData> devParamMap;
+			APPAPI::GetDevParam(aliasDevId, "alias", devParamMap, 5000);
+			CData deviceId = devParamMap["devId"];
 
 			std::map<CData,CData> paramMap;
 			paramMap["aliasDevName"] = devConf.DeviceName;
-			int ret = APPAPI::SetDevParam(devid, "alias", paramMap);
-			
-			if (ret>=0)
+			paramMap["aliasDevId"] = aliasDevId;
+			paramMap["devId"] = deviceId;
+			APPAPI::SetDevParam(deviceId, "msj", paramMap,5000);
+
+			LogInfo("deviceId:  " << deviceId);
+			if (1)
 			{
-				if(m_RoomID!=devConf.RoomID)
+				/*auto iter = m_aliasId2Info.find(aliasDevId);
+				if (iter != m_aliasId2Info.end())
 				{
-					SetRoomID(devConf.RoomID,true);
+					TDeviceInfo& sinfo = iter->second;
+					sinfo.Brand = devConf.Brand;
+					sinfo.Model = devConf.Model;
+					sinfo.Desc = devConf.DevDescribe;
+					sinfo.Version = devConf.Version;
+					sinfo.RatedCapacity = CData(devConf.RatedCapacity);
+					sinfo.BeginRunTime = devConf.BeginRunTime;
 				}
-				
-				if(m_RoomName!=devConf.RoomName)
-				{
-					SetRoomName(devConf.RoomName,true);
-				}
-				
-				if(m_SiteID!=devConf.SiteID)
-				{
-					SetSiteID(devConf.SiteID,true);
-				}
-				if(m_SiteName!=devConf.SiteName)
-				{
-					SetSiteName(devConf.SiteName,true);
-				}
-			
+				m_SiteID = devConf.SiteID;
+				m_SiteName = devConf.SiteName;
+				m_RoomID = devConf.RoomID;
+				m_RoomName = devConf.RoomName;*/
 				std::list<std::map<CData,CData> > paramList;
 				std::list<TSignal>& singals = devConf.singals;
 				for (auto mit=singals.begin(); mit!=singals.end(); mit++)
@@ -497,24 +547,24 @@ namespace CMM_SJY{
 				}
 
 				std::list<CData> errorMeterIdList;
-				int ret1 = APPAPI::SetMeterParam(devid, "alias", paramList, errorMeterIdList, 5000);
+				int ret1 = APPAPI::SetMeterParam(aliasDevId, "alias", paramList, errorMeterIdList, 5000);
 				
 				if (errorMeterIdList.size() == 0)
 				{
 					bOK = true;
-					scucessList.push_back(devid);
-					LogInfo("SetDevCfg ok devId:"<<devid<<" ret1:"<<ret1);
+					scucessList.push_back(aliasDevId);
+					LogInfo("SetDevCfg ok devId:"<< aliasDevId <<" ret1:"<<ret1);
 				}
 				else
 				{
-					failList.push_back(devid);
-					LogError("=== SetDevCfg() SetMeterParam failed devid:"<<devid<<" ret1:"<<ret1);	
+					failList.push_back(aliasDevId);
+					LogError("=== SetDevCfg() SetMeterParam failed devid:"<< aliasDevId <<" ret1:"<<ret1);
 				}
 			}
 			else
 			{
-				failList.push_back(devid);
-				LogError("=== SetDevCfg() SetDevParam failed devid:"<<devid);				
+				failList.push_back(aliasDevId);
+				LogError("=== SetDevCfg() SetDevParam failed devid:"<< aliasDevId);
 			}
 		}
 
@@ -727,70 +777,17 @@ namespace CMM_SJY{
 	{
 		m_password = password;
 		if (saveDb)
-		{
 			SetParam(CMM_SJY::param::Password, password);
-		}
-	}
-
-	CData CMMConfig::GetRoomID()
-	{
-		return m_RoomID;
-	}
-	
-	CData CMMConfig::GetRoomName()
-	{
-		return m_RoomName;
-	}
-
-	void CMMConfig::SetRoomID( CData RoomID , bool saveDb)
-	{
-		m_RoomID = RoomID;
-		if (saveDb)
-		{
-			SetParam(CMM_SJY::param::RoomID, m_RoomID);
-		}
-	}
-
-	void CMMConfig::SetRoomName( CData RoomName, bool saveDb )
-	{
-		m_RoomName = RoomName;
-		if (saveDb)
-		{
-			SetParam(CMM_SJY::param::RoomName, m_RoomName);
-		}
-	}
-
-	CData CMMConfig::GetSiteID()
-	{
-		return m_SiteID;
-	}
-
-	CData CMMConfig::GetSiteName()
-	{
-		return m_SiteName;
-	}
-
-	void CMMConfig::SetSiteID( CData SiteID, bool saveDb )
-	{
-		m_SiteID = SiteID;
-		if (saveDb)
-		{
-			SetParam(CMM_SJY::param::SiteID, m_SiteID);
-		}
-	}
-
-	void CMMConfig::SetSiteName( CData SiteName, bool saveDb )
-	{
-		m_SiteName = SiteName;
-		if (saveDb)
-		{
-			SetParam(CMM_SJY::param::SiteName, m_SiteName);
-		}
 	}
 
 	void CMMConfig::SetFsuPort( CData port )
 	{
 		m_fsuPort = port;
+	}
+
+	void CMMConfig::SetUdpPort(CData port)
+	{
+		m_udpPort = port;
 	}
 
 	CData CMMConfig::GetFsuPort()
@@ -957,10 +954,9 @@ namespace CMM_SJY{
 			for (; iter != semInfos.end(); ++iter)
 			{
 				TSemaphore semInfo = *iter;
-				//LogInfo("TSemaphore : " << semInfo.ID.c_str() << " type:" << semInfo.Type << " level :" << semInfo.AlarmLevel);
-				if (semInfo.Type < 3)  //只采集AI和DI  由于DI和告警都属于DI 所以用告警等级过滤
+				if (semInfo.Type < 3) 
 					continue;
-				if (semInfo.AlarmLevel > 0)
+				if(semInfo.AlarmLevel > 0) //只需要遥信AI = 3, 遥测DI =4 遥测包含告警 因此过滤告警级别大于0的（为0才是DI 否则是告警）
 					continue;
 				CData type = "DI";
 				if (semInfo.Type == 3)
@@ -973,7 +969,7 @@ namespace CMM_SJY{
 					time.erase(std::remove(time.begin(), time.end(), c), time.end());
 				}
 				std::ostringstream os;
-				os << semInfo.ID.c_str() << std::setw(3) << std::setfill('0') << semInfo.SignalNumber;
+				os << semInfo.ID.c_str() << std::setw(3) << std::setfill('0') << 1;
 				CData meterId = os.str();
 				CData meterName = GetDictionaryName(meterId);
 				std::ostringstream oss;
@@ -987,9 +983,7 @@ namespace CMM_SJY{
 					<< semInfo.MeasuredVal << "\n";
 
 				std::string strInfo = oss.str();
-				//LogInfo("strInfo : "<< strInfo.c_str());
 				outputFile << strInfo;
-
 			}	
 		}
 		// 关闭文件流  
