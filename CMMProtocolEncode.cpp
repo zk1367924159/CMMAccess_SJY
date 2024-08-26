@@ -37,7 +37,7 @@ namespace CMM_SJY{
 			info.AddSubElement(CMM_SJY::FSUID).SetElementText(CMMConfig::instance()->GetFsuId().c_str());
 			CData mac = CMMAccess::instance()->GetLocalMac();
 			CData localIp = CMMConfig::instance()->GetFsuIp();		// DAHAI
-			info.AddSubElement(CMM_SJY::FSUIP).SetElementText("49.234.66.123");
+			info.AddSubElement(CMM_SJY::FSUIP).SetElementText("192.168.21.186");
 			info.AddSubElement(CMM_SJY::FSUMAC).SetElementText(mac.c_str());
 
 			std::map<CData,CData> verMap;

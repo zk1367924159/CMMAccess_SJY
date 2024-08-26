@@ -1,12 +1,12 @@
 TARGET = $(notdir $(CURDIR))
 include ../../../config
-C_FLAGS += -std=c++0x -Wall  -Werror=return-type -DWITH_HTTPS -DWITH_OPENSSL -DWITH_NO_C_LOCALE
+C_FLAGS += -std=c++0x -Wall  -Werror=return-type
 ifeq ($(BETA_VERSION),true)
 	C_FLAGS+=-DBETAVER
 endif
-CPP_FLAGS += -I../../../include -I./ -I../../ExtAppIpc/ -I$(ACCESS_DIR)/
+CPP_FLAGS += -I../../../include -I./
 
-LD_FLAGS += -lExtAppIpc -lPoco -lCommon -lNetComm  -lJson -lProto -lzmq -lsodium -lssl -lcrypto -L../../lib  -lpthread -lrt -ldl -Wl,-rpath=/app/lib
+LD_FLAGS += -lExtAppIpc -lPoco -lCommon -lNetComm  -lJson -lProto -lprotobuf-lite -lzmq -lsodium -lssl -lcrypto -L../../lib  -lpthread -lrt -ldl -Wl,-rpath=/app/lib
 DEG_LD_FLAGS += -lExtAppIpcd -lPocod -lCommond -lNetCommd  -lJsond -lProtod -lprotobuf-lite -lzmq -lsodium -lssl  -lcrypto -L../../libd -lpthread -lrt -ldl -Wl,-rpath=/app/lib
 
 COMPILE.c = $(CROSS_COMPILER)g++ $(C_FLAGS) $(CPP_FLAGS) -c

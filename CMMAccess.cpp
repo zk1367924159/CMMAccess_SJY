@@ -564,6 +564,7 @@ namespace CMM_SJY {
 		{
 			Poco::Timestamp now;
 			time_t diff = now.epochTime() - m_lastMsgTime.epochTime();
+			LogInfo("diff ： " << (int)diff);
 			if (CMM_REGISTER_FAILED == m_registerStatus)
 			{
 				if (isFirst || (diff >= m_registerTime && m_nRetry <= 3))
@@ -593,13 +594,13 @@ namespace CMM_SJY {
 				}
 				ReportAlarms();
 				m_nRetry = 0;
-				if (diff >= (m_heartBeatTime))
+				if (diff >= (m_heartBeatTime*2))
 				{
 					SetLoginState(false);
 					Login();
 				}
 			}
-			Poco::Thread::sleep(1000);
+			Poco::Thread::sleep(500);
 		}
 	}
 	// 打印soap错误到日志中
@@ -631,8 +632,8 @@ namespace CMM_SJY {
 
 		m_scUdpPoint = "udp://" + CMMConfig::instance()->GetParam(CMM_SJY::param::SCUdpIp, "1.1.1.1") + ":"
 			+ CMMConfig::instance()->GetParam(CMM_SJY::param::SCUdpPort, "8445") + "/services/LSCService";//LSCService
-		m_scEndPoint = "https://" + CMMConfig::instance()->GetParam(CMM_SJY::param::SCIp, "1.1.1.1") + ":"
-			+ CMMConfig::instance()->GetParam(CMM_SJY::param::SCPort, "443") + "/services/LSCService";//LSCService
+		m_scEndPoint = "http://" + CMMConfig::instance()->GetParam(CMM_SJY::param::SCIp, "1.1.1.1") + ":"
+			+ CMMConfig::instance()->GetParam(CMM_SJY::param::SCPort, "18130") + "/services/LSCService";//LSCService
 
 		m_fsuEndPoint = CMMConfig::instance()->GetParam(CMM_SJY::param::FsuEndPoint, "/services/FSUService");
 
@@ -642,8 +643,8 @@ namespace CMM_SJY {
 
 		m_wirteFileTime = CMMConfig::instance()->GetParam(CMM_SJY::param::GetMeasurementTime, "15").convertInt();
 	
-		int fsuPort = CMMConfig::instance()->GetParam(CMM_SJY::param::FsuPort, "9444").convertInt();
-		int webPort = CMMConfig::instance()->GetParam(CMM_SJY::param::WebPort, "8080").convertInt();
+		int fsuPort = CMMConfig::instance()->GetParam(CMM_SJY::param::FsuPort, "8080").convertInt();
+		//int webPort = CMMConfig::instance()->GetParam(CMM_SJY::param::WebPort, "8080").convertInt();
 		int udpPort = CMMConfig::instance()->GetParam(CMM_SJY::param::UdpPort, "9445").convertInt();
 		/*if (soap_ssl_client_context(m_soap, SOAP_TLSv1_2 | SOAP_TLSv1_3, nullptr, nullptr, nullptr, nullptr, nullptr))
 		{
@@ -653,10 +654,10 @@ namespace CMM_SJY {
 			soap_end(m_soap);
 			return;
 		}*/
-		m_webServer->Start(webPort);
-		m_udpServer->Start(udpPort);
+		//m_webServer->Start(webPort);
+		//m_udpServer->Start(udpPort);
 		m_server->Start(fsuPort, m_fsuEndPoint);
-		m_uartService->Start();
+		//m_uartService->Start();
 	}
 
 	void CMMAccess::UpdateInterval(CData interval)
@@ -702,17 +703,15 @@ namespace CMM_SJY {
 			{
 				m_nRetry = 5; //超时 直接置为大于3值 180s重试
 			}
-			m_registerStatus = CMM_REGISTER_FAILED;
 			SetLoginState(false);
 			return;
 		}
 		if (nRet != 200)
 		{
-			m_registerStatus = CMM_REGISTER_FAILED;
 			SetLoginState(false);
 			return;
 		}
-		CData responseData = CMMSoapXmllEncode::setSoapDeserialization(strResponse);
+		CData responseData = CMMSoapXmllEncode::soapClientResponseDeserialization(strResponse);
 		int ret = m_msgProcess.OnMsgProcess((char*)responseData.c_str(), NULL, 0);
 		if (ret == 1)
 		{
@@ -791,7 +790,7 @@ namespace CMM_SJY {
 		if (std::find(IgAlarmLevelVec.begin(), IgAlarmLevelVec.end(), iAlarmLevel) != IgAlarmLevelVec.end())
 		{
 			//查找到要过滤的
-			LogInfo("~~~~~~~~~~~~find IgnoreAlarmLevel, meterID:" << msg["meterId"] << " AlarmLevel:" << msg["alarmLevel"] << " Config:" << CMMConfig::instance()->m_IgnoreAlarmLevel);
+			//LogInfo("~~~~~~~~~~~~find IgnoreAlarmLevel, meterID:" << msg["meterId"] << " AlarmLevel:" << msg["alarmLevel"] << " Config:" << CMMConfig::instance()->m_IgnoreAlarmLevel);
 			return -1;
 		}
 
@@ -812,7 +811,7 @@ namespace CMM_SJY {
 		int len = meterId.length();
 		alarm.ID = meterId.substr(0, len - 3);
 		alarm.SignalNumber = meterId.substr(len - 3, 3).convertInt();
-		LogInfo("=======>> CMMAccess ====> NotifyAlarm  meterId:" << meterId);
+		//LogInfo("=======>> CMMAccess ====> NotifyAlarm  meterId:" << meterId);
 		if (alarm.ID.length() == 0)
 		{
 			return -1;
@@ -846,16 +845,16 @@ namespace CMM_SJY {
 		CData id = meterId.substr(0, 3);
 		int iID = id.convertInt();
 
-		if (len > 3 && Is_rangeAlarm(iID))
-		{
-			//	alarm.AlarmRemark1 = meterId;//暂不填写
-				//alarm.AlarmRemark2 = triggerVal;
-		}
-		else
-		{
-			LogInfo("error alarm meterId:" << meterId);
-			return -1;
-		}
+		//if (len > 3 && Is_rangeAlarm(iID))
+		//{
+		//	//	alarm.AlarmRemark1 = meterId;//暂不填写
+		//		//alarm.AlarmRemark2 = triggerVal;
+		//}
+		//else
+		//{
+		//	LogInfo("error alarm meterId:" << meterId);
+		//	return -1;
+		//}
 
 		return 0;
 	}
@@ -894,7 +893,7 @@ namespace CMM_SJY {
 		HTTPResponse response;
 		CData strResponse;
 		m_client->SendXmlData(m_scEndPoint.c_str(),soapXmlData, auth_header, response, strResponse);
-		CData responseData = CMMSoapXmllEncode::setSoapDeserialization(strResponse);
+		CData responseData = CMMSoapXmllEncode::soapClientResponseDeserialization(strResponse);
 		if (responseData.empty() || responseData.size() == 0)
 		{
 			LogError("SendRequestToServer failed server is not response error xml:" << reportInfo.c_str());
@@ -1069,7 +1068,7 @@ namespace CMM_SJY {
 				auto it=msg.find("serialNO");
 				if (it!=msg.end()) seq = it->second;
 			}
-			LogInfo("=======>> CMMAccess ====> NotifyAlarm== seq:"<<seq);
+			//LogInfo("=======>> CMMAccess ====> NotifyAlarm== seq:"<<seq);
 			TAlarm alarm = {0};
 			if(FromAlarmInfoToTAlarm2(msg, alarm) == 0)
 			{		
@@ -1083,7 +1082,7 @@ namespace CMM_SJY {
 						{
 							m_log.log(alarm);
 							m_alarmList.erase(pos);
-							LogInfo("=======>> CMMAccess ====>m_alarmList.erase seq:"<<seq);
+							//LogInfo("=======>> CMMAccess ====>m_alarmList.erase seq:"<<seq);
 							return;
 						}
 					}
@@ -1092,7 +1091,7 @@ namespace CMM_SJY {
 				m_alarmList.push_back(alarm);
 				m_alarmListBak = m_alarmList;
 				m_log.log(alarm);
-				LogInfo("=======m_alarmList.push_back:"<<seq);
+				//LogInfo("=======m_alarmList.push_back:"<<seq);
 			}
 		}
 	}
@@ -1279,22 +1278,22 @@ namespace CMM_SJY {
 		param.push_back(std::make_tuple(CData(CMM_SJY::param::LoginState), CData("失败")));
 		param.push_back(std::make_tuple(CData(CMM_SJY::param::UdpLoginState), CData("失败")));
 
-		param.push_back(std::make_tuple(CData(CMM_SJY::param::FsuId), CData("test")));
+		param.push_back(std::make_tuple(CData(CMM_SJY::param::FsuId), CData("05053710030100")));
 		param.push_back(std::make_tuple(CData(CMM_SJY::param::UserName), CData("zhtest")));
 		param.push_back(std::make_tuple(CData(CMM_SJY::param::Password), CData("mKnxGe@9g*%8")));
 		param.push_back(std::make_tuple(CData(CMM_SJY::param::FtpUsr), CData("root")));
 		param.push_back(std::make_tuple(CData(CMM_SJY::param::FtpPasswd), CData("aga2ForIot!")));
 		param.push_back(std::make_tuple(CData(CMM_SJY::param::IsUart), CData("0")));
-		param.push_back(std::make_tuple(CData(CMM_SJY::param::FsuPort), CData("9444")));
+		param.push_back(std::make_tuple(CData(CMM_SJY::param::FsuPort), CData("9555")));
 		param.push_back(std::make_tuple(CData(CMM_SJY::param::UdpPort), CData("9445")));
-		param.push_back(std::make_tuple(CData(CMM_SJY::param::WebPort), CData("8080")));
-		param.push_back(std::make_tuple(CData(CMM_SJY::param::SCIp), CData("61.141.202.77")));
-		param.push_back(std::make_tuple(CData(CMM_SJY::param::SCPort), CData("8989")));
+		//param.push_back(std::make_tuple(CData(CMM_SJY::param::WebPort), CData("8080")));
+		param.push_back(std::make_tuple(CData(CMM_SJY::param::SCIp), CData("10.18.11.30")));
+		param.push_back(std::make_tuple(CData(CMM_SJY::param::SCPort), CData("18130")));
 		param.push_back(std::make_tuple(CData(CMM_SJY::param::SCUdpIp), CData("192.168.1.168")));
 		param.push_back(std::make_tuple(CData(CMM_SJY::param::SCUdpPort), CData("9445")));
-		param.push_back(std::make_tuple(CData(CMM_SJY::param::SiteID), CData("5101072000001")));
+		param.push_back(std::make_tuple(CData(CMM_SJY::param::SiteID), CData("00000000")));
 		param.push_back(std::make_tuple(CData(CMM_SJY::param::SiteName), CData("川成都高升桥枢纽站")));
-		param.push_back(std::make_tuple(CData(CMM_SJY::param::RoomID), CData("000000011")));
+		param.push_back(std::make_tuple(CData(CMM_SJY::param::RoomID), CData("000000000")));
 		param.push_back(std::make_tuple(CData(CMM_SJY::param::RoomName), CData("室内汇聚机房")));
 		param.push_back(std::make_tuple(CData(CMM_SJY::param::GetMeasurementTime), CData("15")));
 		param.push_back(std::make_tuple(CData(CMM_SJY::param::HeartBeatTimeout), CData("300")));

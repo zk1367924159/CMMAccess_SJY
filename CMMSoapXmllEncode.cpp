@@ -45,7 +45,7 @@ namespace CMM_SJY
 		return serialXml;
 	}
 
-	CData CMMSoapXmllEncode::setSoapDeserialization(CData& SoapxmlData)
+	CData CMMSoapXmllEncode::soapClientResponseDeserialization(CData& SoapxmlData)
 	{
 		CData xmlData;
 		TiXmlDocument doc;
@@ -62,15 +62,15 @@ namespace CMM_SJY
 			return "";
 		}
 		// 获取Body元素
-		TiXmlElement* bodyElement = root->FirstChildElement("SOAP-ENV:Body");
+		TiXmlElement* bodyElement = root->FirstChildElement("soap:Body");
 		if (!bodyElement)
 		{
-			bodyElement = root->FirstChildElement("soapenv:Body");
+			bodyElement = root->FirstChildElement("SOAP-ENV:Body");
 		}
 		if (bodyElement)
 		{
 			// 获取invokeResponse元素
-			TiXmlElement* invokeResponseElement = bodyElement->FirstChildElement("tns:invoke");
+			TiXmlElement* invokeResponseElement = bodyElement->FirstChildElement("ns1:invokeResponse");
 			if (!invokeResponseElement)
 			{
 				invokeResponseElement = bodyElement->FirstChildElement("ns:invokeResponse");	
@@ -79,10 +79,10 @@ namespace CMM_SJY
 			{
 				// 现在您可以访问或处理invokeResponse元素及其内容了
 				// 查找invokeReturn元素  
-				TiXmlElement* invokeReturnElement = invokeResponseElement->FirstChildElement("xmlData");
+				TiXmlElement* invokeReturnElement = invokeResponseElement->FirstChildElement("invokeReturn");
 				if (!invokeReturnElement)
 				{
-					invokeReturnElement = invokeResponseElement->FirstChildElement("invokeReturn");
+					invokeReturnElement = invokeResponseElement->FirstChildElement("xmlData");
 				}
 				if (!invokeReturnElement)
 				{
@@ -101,6 +101,73 @@ namespace CMM_SJY
 				}
 			}
 			else 
+			{
+				LogError("invokeResponse element not found in SOAP Body." << SoapxmlData.c_str());
+			}
+		}
+		else
+		{
+			LogError("SOAP Body element not found." << SoapxmlData.c_str());
+		}
+		return xmlData;
+	}
+
+	CData CMMSoapXmllEncode::soapServerResquestDeserialization(CData& SoapxmlData)
+	{
+		CData xmlData;
+		TiXmlDocument doc;
+		const char* errorMsg = doc.Parse(SoapxmlData.c_str());
+		if (errorMsg)
+		{
+			LogError("SoapxmlData Parse failed: " << errorMsg);
+			return "";
+		}
+		TiXmlElement* root = doc.RootElement();
+		if (!root)
+		{
+			LogError("Failed to parse XML, no root element found." << SoapxmlData.c_str());
+			return "";
+		}
+		// 获取Body元素
+		TiXmlElement* bodyElement = root->FirstChildElement("soapenv:Body");
+		if (!bodyElement)
+		{
+			bodyElement = root->FirstChildElement("SOAP-ENV:Body");
+		}
+		if (bodyElement)
+		{
+			// 获取invokeResponse元素
+			TiXmlElement* invokeResponseElement = bodyElement->FirstChildElement("ns1:invoke");
+			if (!invokeResponseElement)
+			{
+				invokeResponseElement = bodyElement->FirstChildElement("ns:invoke");
+			}
+			if (invokeResponseElement)
+			{
+				// 现在您可以访问或处理invokeResponse元素及其内容了
+				// 查找invokeReturn元素  
+				TiXmlElement* invokeReturnElement = invokeResponseElement->FirstChildElement("xmlData");
+				if (!invokeReturnElement)
+				{
+					invokeReturnElement = invokeResponseElement->FirstChildElement("invoke");
+				}
+				if (!invokeReturnElement)
+				{
+					LogError("invokeReturn element not found." << SoapxmlData.c_str());
+					return "";
+				}
+				// 获取invokeReturn元素的文本内容  
+				const char* pXmlData = invokeReturnElement->GetText();
+				if (pXmlData)
+				{
+					//LogInfo("xmlData : " << pXmlData);
+					xmlData = pXmlData;
+				}
+				else {
+					LogError("No text content found in invokeReturn element." << SoapxmlData.c_str());
+				}
+			}
+			else
 			{
 				LogError("invokeResponse element not found in SOAP Body." << SoapxmlData.c_str());
 			}

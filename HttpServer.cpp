@@ -135,7 +135,7 @@ namespace CMM_SJY
 		}
 		else if (method == "POST")
 		{
-			if (uri.getPath() != "/services/FSUService")
+			/*if (uri.getPath() != "/services/FSUService")
 			{
 				CData errorMsg = "404 page not found";
 				CMMAccess::instance()->UpdateAuthHeader(errorMsg, auth_header, token);
@@ -146,7 +146,7 @@ namespace CMM_SJY
 				std::ostream& out = response.send();
 				out << errorMsg.c_str();
 				return;
-			}
+			}*/
 			if (request.getContentLength() == 0)
 			{
 				CData errorMsg = "Bad Request";
@@ -186,31 +186,31 @@ namespace CMM_SJY
 				{
 					CData soapXmlData = requestBody.c_str();
 					//LogInfo("recv SoapXmlData:" << requestBody.c_str());
-					responseData = CMMSoapXmllEncode::setSoapDeserialization(soapXmlData);
+					responseData = CMMSoapXmllEncode::soapServerResquestDeserialization(soapXmlData);
 					// 现在responseBody包含了整个XML内容，可以进行后续处理
 					//LogInfo("recv xmlData:" << responseData.c_str());
-					CMMAccess::instance()->UpdateAuthHeader(soapXmlData, auth_header, token);
-					std::string strAuth = request.get("Authorization");
-					CData requestToken = extractTokenFromCustomAuth(strAuth);
-					//LogInfo("recv Authorization:" << strAuth.c_str());
-					LogInfo("recv Auth token:" << requestToken.c_str() << " and Calculate the token:" << token.c_str());
-					if (requestToken != token)
-					{
-						memset(msgBuf, 0, strlen(msgBuf));
+					//CMMAccess::instance()->UpdateAuthHeader(soapXmlData, auth_header, token);
+					//std::string strAuth = request.get("Authorization");
+					//CData requestToken = extractTokenFromCustomAuth(strAuth);
+					////LogInfo("recv Authorization:" << strAuth.c_str());
+					//LogInfo("recv Auth token:" << requestToken.c_str() << " and Calculate the token:" << token.c_str());
+					//if (requestToken != token)
+					//{
+					//	memset(msgBuf, 0, strlen(msgBuf));
 
-						CMMAccess::instance()->DoMsgProcessError((char*)responseData.c_str(), msgBuf, (int)CMCC_MAX_RESPONSE_BUFFER_SIZE, 3);
-						std::string  errorMsg = msgBuf;
-						CData repSoapXml = CMMSoapXmllEncode::setSoapSerialization(errorMsg, 0);
-						CMMAccess::instance()->UpdateAuthHeader(repSoapXml, auth_header, token);
-						LogInfo("send data header:" << auth_header.c_str());
-						response.setStatusAndReason(HTTPResponse::HTTP_OK);
-						response.setContentType("text/xml; charset=UTF-8");
-						response.setContentLength(repSoapXml.length());
-						response.set("Authorization", auth_header.c_str());
-						std::ostream& out = response.send();
-						out.write(repSoapXml.c_str(), repSoapXml.length()); // 直接使用write方法发送缓冲区内容，避免字符串拷贝
-						return;
-					}
+					//	CMMAccess::instance()->DoMsgProcessError((char*)responseData.c_str(), msgBuf, (int)CMCC_MAX_RESPONSE_BUFFER_SIZE, 3);
+					//	std::string  errorMsg = msgBuf;
+					//	CData repSoapXml = CMMSoapXmllEncode::setSoapSerialization(errorMsg, 0);
+					//	CMMAccess::instance()->UpdateAuthHeader(repSoapXml, auth_header, token);
+					//	LogInfo("send data header:" << auth_header.c_str());
+					//	response.setStatusAndReason(HTTPResponse::HTTP_OK);
+					//	response.setContentType("text/xml; charset=UTF-8");
+					//	response.setContentLength(repSoapXml.length());
+					//	response.set("Authorization", auth_header.c_str());
+					//	std::ostream& out = response.send();
+					//	out.write(repSoapXml.c_str(), repSoapXml.length()); // 直接使用write方法发送缓冲区内容，避免字符串拷贝
+					//	return;
+					//}
 				}
 			}
 			catch (Poco::Exception& e)
@@ -341,8 +341,8 @@ namespace CMM_SJY
 		m_bStop = false;
 		// 创建并配置安全套接字
 		m_listenPort = port;
-		Poco::Net::Context::Ptr pContext = new Poco::Net::Context(Poco::Net::Context::SERVER_USE, CERTFILE, CERTFILE, CAFILE, Poco::Net::Context::VERIFY_NONE, 9, false, "ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH");
-		Poco::Net::SSLManager::instance().initializeServer(nullptr, nullptr, pContext);
+		//Poco::Net::Context::Ptr pContext = new Poco::Net::Context(Poco::Net::Context::SERVER_USE, CERTFILE, CERTFILE, CAFILE, Poco::Net::Context::VERIFY_NONE, 9, false, "ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH");
+		//Poco::Net::SSLManager::instance().initializeServer(nullptr, nullptr, pContext);
 			// 配置HTTP服务器参数
 		m_pParam = new HTTPServerParams();
 		// 创建请求处理器工厂
@@ -389,7 +389,7 @@ namespace CMM_SJY
 	void CHttpServer::run()
 	{
 		// 绑定端口并开始监听
-		m_ServerSocket = SecureServerSocket(m_listenPort);
+		m_ServerSocket = ServerSocket(m_listenPort);
 		m_ServerSocket.listen();
 	
 		m_pHttpServer = new HTTPServer(m_pFactory, m_ServerSocket, m_pParam);
@@ -410,7 +410,7 @@ namespace CMM_SJY
 					// 绑定端口并开始监听
 					m_ServerSocket.close();
 					LogInfo("serverSocket listen port:" << m_listenPort);
-					m_ServerSocket = SecureServerSocket(m_listenPort);
+					m_ServerSocket = ServerSocket(m_listenPort);
 					m_ServerSocket.listen();
 					m_pHttpServer = new HTTPServer(m_pFactory, m_ServerSocket, m_pParam);
 					m_pHttpServer->start();

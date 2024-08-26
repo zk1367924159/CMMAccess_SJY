@@ -34,18 +34,16 @@ int ExtAppMsgNotify(CData type, std::map<CData, CData>& msg)
 	}
 	else if (type == "meter")
 	{
-
 	}
+	//LogInfo("type:"<<type);
 
-	LogInfo("type:"<<type);
-
-	for (auto it=msg.begin(); it!=msg.end(); it++)
-	{
-		CData key = it->first;
-		CData val = it->second;
-		LogInfo("key:"<<key<<" val:"<<val);
-	}
-	
+	//for (auto it=msg.begin(); it!=msg.end(); it++)
+	//{
+	//	CData key = it->first;
+	//	CData val = it->second;
+	//	//LogInfo("key:"<<key<<" val:"<<val);
+	//}
+	//
 	return 0;
 }
 
@@ -64,9 +62,9 @@ int ExtAppMain(int argc, char* argv[])
 	ISFIT::tLogConfig config;
 	CData logFileName = "/userdata/log/"+extAppName + ".log";
 	config.logFileName =logFileName.c_str();
-	//CData logFileSize = APPAPI::GetExtAppParam(CMM_SJY::param::LogFileSize) + "M";
-	//config.logSize = logFileSize.c_str();
-	//config.logLevel = APPAPI::GetExtAppParam(CMM_SJY::param::LogLevel).c_str();
+	CData logFileSize = APPAPI::GetExtAppParam(CMM_SJY::param::LogFileSize) + "M";
+	config.logSize = logFileSize.c_str();
+	config.logLevel = APPAPI::GetExtAppParam(CMM_SJY::param::LogLevel).c_str();
 	ISFIT::CLog::Instance().init(config);
 	
 	CMM_SJY::CMMAccess::instance()->start();

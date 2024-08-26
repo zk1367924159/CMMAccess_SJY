@@ -32,13 +32,13 @@ namespace CMM_SJY
 
 	void CHttpClient::Start()
 	{
-		m_pContext = new Context(Context::CLIENT_USE, "", "", "", Context::VERIFY_NONE, 9, false, "ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH");
+		//m_pContext = new Context(Context::CLIENT_USE, "", "", "", Context::VERIFY_NONE, 9, false, "ALL:!ADH:!LOW:!EXP:!MD5:@STRENGTH");
 	}
 
 	int CHttpClient::SendXmlData(const char* url,CData xmlData, CData authHeader, HTTPResponse& response, CData& responseData)
 	{
 		Poco::URI uri(url);
-		HTTPSClientSession session(uri.getHost(), uri.getPort(), m_pContext);
+		HTTPClientSession session(uri.getHost(), uri.getPort());
 		CData m_strPath = uri.getPath();
 		//LogInfo("host: " << uri.getHost() << " port: " << uri.getPort() << " path: " << m_strPath.c_str());
 		LogInfo("send data to:"<< url << " header:" << authHeader.c_str());
@@ -46,7 +46,7 @@ namespace CMM_SJY
 		HTTPRequest request("POST", m_strPath.c_str(), "HTTP/1.1");
 		request.setContentType("text/xml");
 		request.setContentLength(xmlData.length());
-		request.set("Authorization", authHeader.c_str());
+		//request.set("Authorization", authHeader.c_str());
 		//request.set("Accept", "text/xml, text/plain, */*");
 		// 遍历并打印所有的HTTP头部
 		/*for (auto it = request.begin(); it != request.end(); ++it)

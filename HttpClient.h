@@ -9,7 +9,7 @@
 #include "Poco/DateTimeFormat.h"
 #include "Poco/Timestamp.h"
 #include "Data.h"
-#include "Poco/Net/HTTPSClientSession.h"
+#include "Poco/Net/HTTPClientSession.h"
 #include "Poco/Net/HTTPRequest.h"
 #include "Poco/Net/HTTPResponse.h"
 #include "Poco/URI.h"
@@ -21,7 +21,7 @@ using namespace Poco::Net;
 namespace CMM_SJY
 {
 
-	class CHttpClient :public HTTPSClientSession
+	class CHttpClient :public HTTPClientSession
 	{
 
 	public:
@@ -40,7 +40,7 @@ namespace CMM_SJY
 
 	private:
 		std::string m_pUser;
-		Context::Ptr m_pContext;
+		//Context::Ptr m_pContext;
 	};
 		
 }

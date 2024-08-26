@@ -31,6 +31,8 @@ class CMMSoapXmllEncode
 		static CData setSoapSerialization(std::string& xmlData,int nType);
 
 		//∑¥–Ú¡–ªØ
-		static CData setSoapDeserialization(CData& SoapxmlData);
+		static CData soapClientResponseDeserialization(CData& SoapxmlData);
+
+		static CData soapServerResquestDeserialization(CData& SoapxmlData);
 	};
 }
