@@ -84,7 +84,6 @@ namespace CMM_SJY{
 	{
 
 		m_fsuId = GetParam(CMM_SJY::param::FsuId, "");
-		//m_FsuCode = GetParam(CTower::param::FsuCode, "");
 		m_fsuIp = GetParam(CMM_SJY::param::FsuIp, "");
 		m_fsuPort = GetParam(CMM_SJY::param::FsuPort, "");
 		m_fsuConfigTime = GetParam(CMM_SJY::param::DevCfgTime, "");
